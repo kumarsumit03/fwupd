@@ -6,6 +6,7 @@ ENV LC_ALL en_US.UTF-8
 RUN echo fubar > /etc/machine-id
 RUN dnf -y update
 RUN echo fubar > /etc/machine-id
+RUN dnf -y install dnf-plugins-core && dnf -y copr enable rhughes/fwupd && dnf -y install libjcat-devel
 %%%INSTALL_DEPENDENCIES_COMMAND%%%
 RUN dnf -y update glib2 glib2-devel --releasever=32
 RUN mkdir /build

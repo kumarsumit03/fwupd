@@ -75,6 +75,7 @@ fwupdplugin_headers_private = [
 
 introspection_deps = [
   libxmlb,
+  libjcat,
   giounix,
   gusb,
 ]
@@ -91,6 +92,7 @@ library_deps = [
   libjsonglib,
   libgcab,
   valgrind,
+  libjcat,
   platform_deps,
 ]
 
@@ -132,6 +134,7 @@ fwupdplugin_pkgg.generate(
                'libgcab-1.0',
                'libsoup-2.4',
                'xmlb',
+               'jcat',
   ],
   subdirs : 'fwupd-1',
   version : meson.project_version(),
@@ -214,9 +217,6 @@ if get_option('tests')
     noreqs_test_firmware,
     fu_hash,
   ]
-  if get_option('pkcs7')
-    test_deps += colorhug_pkcs7_signature
-  endif
   testdatadir_src = join_paths(meson.source_root(), 'data', 'tests')
   testdatadir_dst = join_paths(meson.build_root(), 'data', 'tests')
   pluginbuilddir = join_paths(meson.build_root(), 'plugins', 'test')

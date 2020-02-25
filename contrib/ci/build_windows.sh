@@ -15,7 +15,6 @@ meson .. \
     --libexecdir=$target \
     --bindir=$target \
     -Dbuild=standalone \
-    -Dgpg=false \
     -Dplugin_coreboot=false \
     -Dplugin_flashrom=false \
     -Dplugin_uefi=false \
@@ -38,6 +37,8 @@ meson .. \
     -Dgcab:tests=false \
     -Dlibxmlb:introspection=false \
     -Dlibxmlb:gtkdoc=false \
+    -Dlibjcat:gpg=false \
+    -Dlibjcat:introspection=false \
     -Dgudev=false $@
 ninja -v
 

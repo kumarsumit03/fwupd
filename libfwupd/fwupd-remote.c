@@ -153,6 +153,8 @@ fwupd_remote_get_suffix_for_keyring_kind (FwupdKeyringKind keyring_kind)
 		return ".asc";
 	if (keyring_kind == FWUPD_KEYRING_KIND_PKCS7)
 		return ".p7b";
+	if (keyring_kind == FWUPD_KEYRING_KIND_JCAT)
+		return ".jcat";
 	return NULL;
 }
 
@@ -375,7 +377,7 @@ fwupd_remote_load_from_filename (FwupdRemote *self,
 	/* get verification type, falling back to GPG */
 	keyring_kind = g_key_file_get_string (kf, group, "Keyring", NULL);
 	if (keyring_kind == NULL) {
-		priv->keyring_kind = FWUPD_KEYRING_KIND_GPG;
+		priv->keyring_kind = FWUPD_KEYRING_KIND_JCAT;
 	} else {
 		priv->keyring_kind = fwupd_keyring_kind_from_string (keyring_kind);
 		if (priv->keyring_kind == FWUPD_KEYRING_KIND_UNKNOWN) {
@@ -385,6 +387,11 @@ fwupd_remote_load_from_filename (FwupdRemote *self,
 				     "Failed to parse type '%s'",
 				     keyring_kind);
 			return FALSE;
+		}
+		if (priv->keyring_kind == FWUPD_KEYRING_KIND_GPG ||
+		    priv->keyring_kind == FWUPD_KEYRING_KIND_PKCS7) {
+			g_debug ("converting Keyring value to Jcat");
+			priv->keyring_kind = FWUPD_KEYRING_KIND_JCAT;
 		}
 	}
 

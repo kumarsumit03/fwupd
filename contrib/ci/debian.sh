@@ -42,6 +42,8 @@ lintian ../*changes \
 	--suppress-tags debian-watch-file-in-native-package \
 	--suppress-tags source-nmu-has-incorrect-version-number \
 	--suppress-tags no-symbols-control-file \
+	--suppress-tags missing-dependency-on-libc \
+	--suppress-tags arch-dependent-file-not-in-arch-specific-directory \
 	--allow-root
 
 #if invoked outside of CI
