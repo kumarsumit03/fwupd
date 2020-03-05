@@ -3992,10 +3992,10 @@ fu_engine_self_sign (FuEngine *self,
 		     JcatSignFlags flags,
 		     GError **error)
 {
+	g_autoptr(JcatBlob) jcat_signature = NULL;
 	g_autoptr(JcatEngine) jcat_engine = NULL;
 	g_autoptr(JcatResult) jcat_result = NULL;
 	g_autoptr(GBytes) payload = NULL;
-	g_autoptr(GBytes) signature = NULL;
 
 	/* create detached signature and verify */
 	jcat_engine = jcat_context_get_engine (self->jcat_context,
@@ -4004,16 +4004,15 @@ fu_engine_self_sign (FuEngine *self,
 	if (jcat_engine == NULL)
 		return NULL;
 	payload = g_bytes_new (value, strlen (value));
-	signature = jcat_engine_sign (jcat_engine, payload, flags, error);
-	if (signature == NULL)
+	jcat_signature = jcat_engine_self_sign (jcat_engine, payload, flags, error);
+	if (jcat_signature == NULL)
 		return NULL;
-	jcat_result = jcat_engine_verify (jcat_engine, payload, signature,
-					  JCAT_VERIFY_FLAG_USE_CLIENT_CERT,
-					  error);
+	jcat_result = jcat_engine_self_verify (jcat_engine, payload,
+					       jcat_blob_get_data (jcat_signature),
+					       JCAT_VERIFY_FLAG_NONE, error);
 	if (jcat_result == NULL)
 		return NULL;
-	return g_strndup (g_bytes_get_data (signature, NULL),
-			  g_bytes_get_size (signature));
+	return jcat_blob_get_data_as_string (jcat_signature);
 }
 
 /**
@@ -5256,10 +5255,10 @@ fu_engine_udev_uevent_cb (GUdevClient *gudev_client,
 static void
 fu_engine_ensure_client_certificate (FuEngine *self)
 {
-	g_autoptr(JcatEngine) jcat_engine = NULL;
 	g_autoptr(GBytes) blob = g_bytes_new_static ("test\0", 5);
-	g_autoptr(GBytes) sig = NULL;
 	g_autoptr(GError) error = NULL;
+	g_autoptr(JcatBlob) jcat_sig = NULL;
+	g_autoptr(JcatEngine) jcat_engine = NULL;
 
 	/* create keyring and sign dummy data to ensure certificate exists */
 	jcat_engine = jcat_context_get_engine (self->jcat_context,
@@ -5269,8 +5268,8 @@ fu_engine_ensure_client_certificate (FuEngine *self)
 		g_message ("failed to create keyring: %s", error->message);
 		return;
 	}
-	sig = jcat_engine_sign (jcat_engine, blob, JCAT_SIGN_FLAG_NONE, &error);
-	if (sig == NULL) {
+	jcat_sig = jcat_engine_self_sign (jcat_engine, blob, JCAT_SIGN_FLAG_NONE, &error);
+	if (jcat_sig == NULL) {
 		g_message ("failed to sign using keyring: %s", error->message);
 		return;
 	}
