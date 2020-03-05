@@ -60,6 +60,7 @@ Section "fwupd"
 
   # fwupd
   File "dfu-tool.exe"
+  File "jcat-tool.exe"
   File "fwupdtool.exe"
   File "libfwupd-2.dll"
   File "libfwupdplugin-1.dll"
