@@ -2792,7 +2792,16 @@ fu_engine_md_refresh_device_verfmt (FuEngine *self, FuDevice *device, XbNode *co
 	/* found and different to existing */
 	if (verfmt != FWUPD_VERSION_FORMAT_UNKNOWN &&
 	    fu_device_get_version_format (device) != verfmt) {
+		GPtrArray *releases = fwupd_device_get_releases (FWUPD_DEVICE (device));
 		fu_device_set_version_format (device, verfmt);
+		for (guint i = 0; i < releases->len; i++) {
+			FwupdRelease *release = g_ptr_array_index (releases, i);
+			g_autofree gchar *version = NULL;
+			version = fu_common_version_parse_from_format (fwupd_release_get_version (release),
+									verfmt);
+			fwupd_release_set_version (release, version);
+		}
+
 		if (fu_device_get_version_raw (device) != 0x0) {
 			g_autofree gchar *version = NULL;
 			version = fu_common_version_from_uint32 (fu_device_get_version_raw (device), verfmt);
