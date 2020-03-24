@@ -285,9 +285,9 @@ fu_ccgx_cyacd_file_parse (CyacdFileHandle *handle, CyacdFileInfo *info)
 	fw2_meta_row_num = row_max-2;
 
 	if (ccgx_info->flash_row_size == 128) {
-		fw_meta_offset = 64;
+		fw_meta_offset = META_DATA_OFFSET_ROW_128;
 	} else if (ccgx_info->flash_row_size == 256) {
-		fw_meta_offset = 128 + 64;
+		fw_meta_offset = META_DATA_OFFSET_ROW_256;
 	} else {
 		fw_meta_offset = 0;
 		return FALSE;
