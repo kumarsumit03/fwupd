@@ -30,10 +30,14 @@ typedef enum {
 } FWMode;
 
 /* meta data Size */
-#define CCGX_METADATA_SIZE	32
+#define CCGX_METADATA_SIZE 32
 
 /* metadata valid signature "CY" */
 #define CCGX_METADATA_VALID_SIG 0x4359
+
+/* metadaa offset */
+#define META_DATA_OFFSET_ROW_128 64
+#define META_DATA_OFFSET_ROW_256 (64 + 128)
 
 /* meta data */
 typedef struct __attribute__((packed)) {
@@ -80,18 +84,13 @@ typedef struct __attribute__((packed)) {
 typedef struct __attribute__((packed)) {
 	PDFWAppVersion	current_version;		/* application Version */
 	PDFWAppVersion	fw_version[FW_MODE_MAX];	/* fw1 and fw2 verions */
-
-	gboolean	fw_meta_valid;			/* fw1 and fw2 metadata valid */
-	CCGxMetaData	fw_metadata[FW_MODE_MAX];	/* fw1 and fw2 metadata */
-
 	guint16	fw1_meta_row_num;	/* fw1 meta row num */
 	guint16	fw2_meta_row_num;	/* fw2 meta row num */
 	guint32	fw_meta_offset;		/* offset of meta data in a row */
 	guint32	fw_row_size;		/* row Size */
-
 	FWMode	fw_mode;		/* firmware Mode */
 	guint8	num_of_ports;		/* number of pd ports */
 	guint16	silicon_id;		/* silicon id */
 } PDDeviceData;
 
-CCGxPartInfo	*fu_ccgx_util_find_ccgx_info		(guint16	 silicon_id);
+CCGxPartInfo	*fu_ccgx_util_find_ccgx_info (guint16 silicon_id);
