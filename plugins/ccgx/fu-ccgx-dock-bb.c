@@ -38,7 +38,6 @@ struct _FuCcgxDockBb {
 	guint16		 quirks_fw_app_type;		/* fw application type in quirks */
 	gboolean	 flag_dm_has_child;		/* flag that indicate device manager has child */
 	FWImageType	 fw_image_type;			/* firmware Image type */
-	gboolean	 fw_primary_update_only;	/* only update primary image */
 	gchar		*fw_update_message;		/* update message */
 	gchar		*fw_update_message_primary;	/* update message postfix for primary */
 	gchar		*fw_update_message_backup;	/* update message postfix for backup */
@@ -203,8 +202,7 @@ fu_ccgx_dock_bb_pd_i2c_write_fw (FuDevice *device,
 				return FALSE;;
 			}
 
-			if (cyacd_file_info.fw_mode != update_fw_mode ||
-			    (self->fw_primary_update_only == TRUE && self->pd_device_data.fw_mode  == FW_MODE_FW2)) {
+			if (cyacd_file_info.fw_mode != update_fw_mode) {
 				if (handle_count > 1)
 					continue; /* get next handle */
 				else
@@ -443,8 +441,6 @@ fu_ccgx_dock_bb_probe (FuDevice *device, GError **error)
 				   "not supported fw image");
 			return FALSE;
 		}
-		if (fu_device_has_custom_flag (FU_DEVICE(device),"cy-fw-primary-update-only"))
-			self->fw_primary_update_only = TRUE;
 	}
 	return TRUE;
 }
@@ -688,9 +684,7 @@ fu_ccgx_dock_bb_reboot (FuDevice *device, GError **error)
 
 	if (fu_device_get_update_state (device) == FWUPD_UPDATE_STATE_SUCCESS &&
 	    self->fw_image_type == FW_IMAGE_TYPE_DUAL_ASYMMETRIC &&
-	    self->pd_device_data.fw_mode == FW_MODE_FW2  &&
-	    self->pd_device_data.fw_metadata[FW_MODE_FW1].metadata_valid == CCGX_METADATA_VALID_SIG &&
-	    g_strcmp0 (self->model_name, CCGX_GEN2_DOCK_MODEL_NAME) == 0) {
+	    self->pd_device_data.fw_mode == FW_MODE_FW2) {
 		need_to_enter_alt_mode = TRUE;
 	}
 
