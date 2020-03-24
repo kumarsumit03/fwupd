@@ -286,6 +286,15 @@ fu_ccgx_i2c_read (FuDevice *device, CyI2CDeviceHandle *handle, CyI2CDataConfig *
 		return FALSE;
 	}
 
+	if (i2c_status[0] & CY_I2C_ERROR_BIT) {
+		g_set_error (error,
+			     FWUPD_ERROR,
+			     FWUPD_ERROR_NOT_SUPPORTED,
+			     "i2c status error in i2c read : 0x%x", 
+			     (guint8)i2c_status[0]);
+		return FALSE;
+	}
+
 	scb_index = handle->inf_num;
 	if (scb_index > 0)
 		scb_index = 1;
@@ -402,6 +411,15 @@ fu_ccgx_i2c_write (FuDevice *device, CyI2CDeviceHandle *handle, CyI2CDataConfig 
 
 	if (!fu_ccgx_i2c_get_status (device, handle, mode, (guint8*)i2c_status, error)) {
 		g_prefix_error (error, "i2c get status error: ");
+		return FALSE;
+	}
+
+	if (i2c_status[0] & CY_I2C_ERROR_BIT) {
+		g_set_error (error,
+			     FWUPD_ERROR,
+			     FWUPD_ERROR_NOT_SUPPORTED,
+			     "i2c status error in i2c read : 0x%x", 
+			     (guint8)i2c_status[0]);
 		return FALSE;
 	}
 
