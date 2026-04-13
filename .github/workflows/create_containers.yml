@@ -38,4 +38,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/fwupd/fwupd/fwupd-${{matrix.os}}:latest
+          tags: ghcr.io/${{ github.repository }}/fwupd-${{matrix.os}}:latest
