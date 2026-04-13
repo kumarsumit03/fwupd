@@ -167,6 +167,22 @@ fu_quirks_add_possible_key(FuQuirks *self, const gchar *possible_key) G_GNUC_NON
  **/
 #define FU_QUIRKS_VERSION "Version"
 /**
+ * FU_QUIRKS_VERSION_LOWEST:
+ *
+ * The quirk key for the lowest allowed version, e.g. `1.2.3`.
+ *
+ * Since: 2.1.2
+ **/
+#define FU_QUIRKS_VERSION_LOWEST "VersionLowest"
+/**
+ * FU_QUIRKS_VERSION_HIGHEST:
+ *
+ * The quirk key for the highest allowed version, e.g. `1.2.3`.
+ *
+ * Since: 2.1.2
+ **/
+#define FU_QUIRKS_VERSION_HIGHEST "VersionHighest"
+/**
  * FU_QUIRKS_VENDOR:
  *
  * The quirk key for the vendor name, e.g. `Hughski Limited`.
@@ -319,6 +335,15 @@ fu_quirks_add_possible_key(FuQuirks *self, const gchar *possible_key) G_GNUC_NON
  * Since: 1.7.6
  **/
 #define FU_QUIRKS_ISSUE "Issue"
+/**
+ * FU_QUIRKS_DETAILS_URL:
+ *
+ * The quirk key for the device-specific product page, e.g.
+ * `https://www.lenovo.com/us/en/p/laptops/thinkpad/thinkpadp/thinkpad-p50/22tp2wpwp50`.
+ *
+ * Since: 2.1.2
+ **/
+#define FU_QUIRKS_DETAILS_URL "DetailsUrl"
 /**
  * FU_QUIRKS_CFI_DEVICE_CMD_READ_ID
  *

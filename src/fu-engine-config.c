@@ -160,7 +160,7 @@ fu_engine_config_reload(FuEngineConfig *self)
 	/* get the domains to run in verbose */
 	domains = fu_config_get_value(FU_CONFIG(self), "fwupd", "VerboseDomains");
 	if (domains != NULL && domains[0] != '\0')
-		(void)g_setenv("FWUPD_VERBOSE", domains, FALSE);
+		(void)g_setenv("FWUPD_LOG_DOMAINS", domains, TRUE);
 
 	/* fetch host best known configuration */
 	host_bkc = fu_config_get_value(FU_CONFIG(self), "fwupd", "HostBkc");
@@ -385,7 +385,7 @@ fu_engine_config_archive_size_max_default(void)
 {
 	guint64 memory_size = fu_common_get_memory_size();
 	guint64 archive_size_max = memory_size > 0 ? MIN(memory_size / 4, G_MAXUINT32)
-						   : 512 * 0x100000;
+						   : 512 * FU_MB;
 	return g_strdup_printf("%" G_GUINT64_FORMAT, archive_size_max);
 }
 

@@ -8,7 +8,7 @@
 
 #include "config.h"
 
-#include "fu-mem.h"
+#include "fu-mem-private.h"
 #include "fu-sum.h"
 
 /**
@@ -26,10 +26,42 @@ guint8
 fu_sum8(const guint8 *buf, gsize bufsz)
 {
 	guint8 checksum = 0;
-	g_return_val_if_fail(buf != NULL, G_MAXUINT8);
+	g_return_val_if_fail(buf != NULL || bufsz == 0, G_MAXUINT8);
 	for (gsize i = 0; i < bufsz; i++)
 		checksum += buf[i];
 	return checksum;
+}
+
+/**
+ * fu_sum8_safe:
+ * @buf: source buffer
+ * @bufsz: maximum size of @buf, typically `sizeof(buf)`
+ * @offset: offset in bytes into @buf where sum should start
+ * @n: number of bytes to sum from @buf
+ * @value: (out) (nullable): the result
+ * @error: (nullable): optional return location for an error
+ *
+ * Returns the arithmetic sum of all bytes in @buf.
+ *
+ * You don't need to use this function in "obviously correct" cases, nor should
+ * you use it when performance is a concern. Only use it when you're not sure if
+ * malicious data from a device or firmware could cause memory corruption.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise
+ *
+ * Since: 2.1.2
+ **/
+gboolean
+fu_sum8_safe(const guint8 *buf, gsize bufsz, gsize offset, gsize n, guint8 *value, GError **error)
+{
+	g_return_val_if_fail(buf != NULL || bufsz == 0, FALSE);
+	g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+
+	if (!fu_memchk_read(bufsz, offset, n, error))
+		return FALSE;
+	if (value != NULL)
+		*value = fu_sum8(buf + offset, n);
+	return TRUE;
 }
 
 /**
@@ -66,10 +98,42 @@ guint16
 fu_sum16(const guint8 *buf, gsize bufsz)
 {
 	guint16 checksum = 0;
-	g_return_val_if_fail(buf != NULL, G_MAXUINT16);
+	g_return_val_if_fail(buf != NULL || bufsz == 0, G_MAXUINT16);
 	for (gsize i = 0; i < bufsz; i++)
 		checksum += buf[i];
 	return checksum;
+}
+
+/**
+ * fu_sum16_safe:
+ * @buf: source buffer
+ * @bufsz: maximum size of @buf, typically `sizeof(buf)`
+ * @offset: offset in bytes into @buf where sum should start
+ * @n: number of bytes to sum from @buf
+ * @value: (out) (nullable): the result
+ * @error: (nullable): optional return location for an error
+ *
+ * Returns the arithmetic sum of all bytes in @buf, adding them one byte at a time.
+ *
+ * You don't need to use this function in "obviously correct" cases, nor should
+ * you use it when performance is a concern. Only use it when you're not sure if
+ * malicious data from a device or firmware could cause memory corruption.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise
+ *
+ * Since: 2.1.2
+ **/
+gboolean
+fu_sum16_safe(const guint8 *buf, gsize bufsz, gsize offset, gsize n, guint16 *value, GError **error)
+{
+	g_return_val_if_fail(buf != NULL || bufsz == 0, FALSE);
+	g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+
+	if (!fu_memchk_read(bufsz, offset, n, error))
+		return FALSE;
+	if (value != NULL)
+		*value = fu_sum16(buf + offset, n);
+	return TRUE;
 }
 
 /**
@@ -106,7 +170,7 @@ guint16
 fu_sum16w(const guint8 *buf, gsize bufsz, FuEndianType endian)
 {
 	guint16 checksum = 0;
-	g_return_val_if_fail(buf != NULL, G_MAXUINT16);
+	g_return_val_if_fail(buf != NULL || bufsz == 0, G_MAXUINT16);
 	g_return_val_if_fail(bufsz % 2 == 0, G_MAXUINT16);
 	for (gsize i = 0; i < bufsz; i += 2)
 		checksum += fu_memread_uint16(&buf[i], endian);
@@ -147,7 +211,7 @@ guint32
 fu_sum32(const guint8 *buf, gsize bufsz)
 {
 	guint32 checksum = 0;
-	g_return_val_if_fail(buf != NULL, G_MAXUINT32);
+	g_return_val_if_fail(buf != NULL || bufsz == 0, G_MAXUINT32);
 	for (gsize i = 0; i < bufsz; i++)
 		checksum += buf[i];
 	return checksum;
@@ -187,7 +251,7 @@ guint32
 fu_sum32w(const guint8 *buf, gsize bufsz, FuEndianType endian)
 {
 	guint32 checksum = 0;
-	g_return_val_if_fail(buf != NULL, G_MAXUINT32);
+	g_return_val_if_fail(buf != NULL || bufsz == 0, G_MAXUINT32);
 	g_return_val_if_fail(bufsz % 4 == 0, G_MAXUINT32);
 	for (gsize i = 0; i < bufsz; i += 4)
 		checksum += fu_memread_uint32(&buf[i], endian);

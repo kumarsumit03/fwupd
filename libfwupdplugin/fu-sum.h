@@ -6,14 +6,22 @@
 
 #pragma once
 
+#include "fwupd.h"
+
 #include "fu-endian.h"
 
 guint8
 fu_sum8(const guint8 *buf, gsize bufsz);
+gboolean
+fu_sum8_safe(const guint8 *buf, gsize bufsz, gsize offset, gsize n, guint8 *value, GError **error)
+    G_GNUC_WARN_UNUSED_RESULT G_GNUC_NON_NULL(1);
 guint8
 fu_sum8_bytes(GBytes *blob);
 guint16
 fu_sum16(const guint8 *buf, gsize bufsz);
+gboolean
+fu_sum16_safe(const guint8 *buf, gsize bufsz, gsize offset, gsize n, guint16 *value, GError **error)
+    G_GNUC_WARN_UNUSED_RESULT G_GNUC_NON_NULL(1);
 guint16
 fu_sum16_bytes(GBytes *blob);
 guint16

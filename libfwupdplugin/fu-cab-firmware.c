@@ -20,6 +20,7 @@
 #include "fu-input-stream.h"
 #include "fu-mem-private.h"
 #include "fu-partial-input-stream.h"
+#include "fu-path.h"
 #include "fu-string.h"
 
 typedef struct {
@@ -170,6 +171,7 @@ fu_cab_firmware_parse_data(FuCabFirmware *self,
 	gsize blob_comp;
 	gsize blob_uncomp;
 	gsize hdr_sz;
+	gsize payload_offset = *offset;
 	gsize size_max = fu_firmware_get_size_max(FU_FIRMWARE(self));
 	g_autoptr(FuStructCabData) st = NULL;
 	g_autoptr(GInputStream) partial_stream = NULL;
@@ -189,7 +191,8 @@ fu_cab_firmware_parse_data(FuCabFirmware *self,
 				    "mismatched compressed data");
 		return FALSE;
 	}
-	helper->size_total += blob_uncomp;
+	if (!fu_size_checked_inc(&helper->size_total, blob_uncomp, error))
+		return FALSE;
 	if (size_max > 0 && helper->size_total > size_max) {
 		g_autofree gchar *sz_val = g_format_size(helper->size_total);
 		g_autofree gchar *sz_max = g_format_size(size_max);
@@ -205,8 +208,10 @@ fu_cab_firmware_parse_data(FuCabFirmware *self,
 	hdr_sz = st->buf->len + helper->rsvd_block;
 
 	/* verify checksum */
+	if (!fu_size_checked_inc(&payload_offset, hdr_sz, error))
+		return FALSE;
 	partial_stream =
-	    fu_partial_input_stream_new(helper->stream, *offset + hdr_sz, blob_comp, error);
+	    fu_partial_input_stream_new(helper->stream, payload_offset, blob_comp, error);
 	if (partial_stream == NULL) {
 		g_prefix_error_literal(error, "failed to cut cabinet checksum: ");
 		return FALSE;
@@ -252,7 +257,7 @@ fu_cab_firmware_parse_data(FuCabFirmware *self,
 
 		/* check compressed header */
 		bytes_comp = fu_input_stream_read_bytes(helper->stream,
-							*offset + hdr_sz,
+							payload_offset,
 							blob_comp,
 							NULL,
 							error);
@@ -339,17 +344,22 @@ fu_cab_firmware_parse_data(FuCabFirmware *self,
 		}
 		bytes_uncomp =
 		    g_byte_array_free_to_bytes(g_steal_pointer(&buf)); /* nocheck:blocked */
-		fu_composite_input_stream_add_bytes(FU_COMPOSITE_INPUT_STREAM(folder_data),
-						    bytes_uncomp);
+		if (!fu_composite_input_stream_add_bytes(FU_COMPOSITE_INPUT_STREAM(folder_data),
+							 bytes_uncomp,
+							 error))
+			return FALSE;
 	} else {
-		fu_composite_input_stream_add_partial_stream(
-		    FU_COMPOSITE_INPUT_STREAM(folder_data),
-		    FU_PARTIAL_INPUT_STREAM(partial_stream));
+		if (!fu_composite_input_stream_add_partial_stream(
+			FU_COMPOSITE_INPUT_STREAM(folder_data),
+			FU_PARTIAL_INPUT_STREAM(partial_stream),
+			error))
+			return FALSE;
 	}
 
 	/* success */
-	*offset += blob_comp + hdr_sz;
-	return TRUE;
+	if (!fu_size_checked_inc(offset, blob_comp, error))
+		return FALSE;
+	return fu_size_checked_inc(offset, hdr_sz, error);
 }
 
 static gboolean
@@ -445,7 +455,8 @@ fu_cab_firmware_parse_file(FuCabFirmware *self,
 	folder_data = g_ptr_array_index(helper->folder_data, index);
 
 	/* parse filename */
-	*offset += FU_STRUCT_CAB_FILE_SIZE;
+	if (!fu_size_checked_inc(offset, FU_STRUCT_CAB_FILE_SIZE, error))
+		return FALSE;
 	for (guint i = 0; i < 255; i++) {
 		guint8 value = 0;
 		if (!fu_input_stream_read_u8(helper->stream, *offset + i, &value, error))
@@ -465,6 +476,10 @@ fu_cab_firmware_parse_file(FuCabFirmware *self,
 			value = '/';
 		g_string_append_c(filename, (gchar)value);
 	}
+
+	/* sanity check */
+	if (!fu_path_verify_safe(filename->str, error))
+		return FALSE;
 
 	/* add image */
 	if (flags & FU_FIRMWARE_PARSE_FLAG_ONLY_BASENAME) {
@@ -499,8 +514,7 @@ fu_cab_firmware_parse_file(FuCabFirmware *self,
 	fu_cab_image_set_created(img, created);
 
 	/* offset to next entry */
-	*offset += filename->len + 1;
-	return TRUE;
+	return fu_size_checked_inc(offset, filename->len + 1, error);
 }
 
 static gboolean
@@ -619,14 +633,25 @@ fu_cab_firmware_parse(FuFirmware *firmware,
 		helper->ndatabsz = streamsz;
 
 	/* reserved sizes */
-	offset += st->buf->len;
+	if (!fu_size_checked_inc(&offset, st->buf->len, error)) {
+		g_prefix_error_literal(error, "header offset overflow: ");
+		return FALSE;
+	}
+
 	if (fu_struct_cab_header_get_flags(st) & 0x0004) {
 		g_autoptr(FuStructCabHeaderReserve) st2 = NULL;
 		st2 = fu_struct_cab_header_reserve_parse_stream(stream, offset, error);
 		if (st2 == NULL)
 			return FALSE;
-		offset += st2->buf->len;
-		offset += fu_struct_cab_header_reserve_get_rsvd_hdr(st2);
+		if (!fu_size_checked_inc(&offset, st2->buf->len, error)) {
+			g_prefix_error_literal(error, "header reserve offset overflow: ");
+			return FALSE;
+		}
+
+		if (!fu_size_checked_inc(&offset,
+					 fu_struct_cab_header_reserve_get_rsvd_hdr(st2),
+					 error))
+			return FALSE;
 		helper->rsvd_block = fu_struct_cab_header_reserve_get_rsvd_block(st2);
 		helper->rsvd_folder = fu_struct_cab_header_reserve_get_rsvd_folder(st2);
 	}
@@ -646,7 +671,10 @@ fu_cab_firmware_parse(FuFirmware *firmware,
 			return FALSE;
 		}
 		g_ptr_array_add(helper->folder_data, g_steal_pointer(&folder_data));
-		offset += FU_STRUCT_CAB_FOLDER_SIZE + helper->rsvd_folder;
+		if (!fu_size_checked_inc(&offset, FU_STRUCT_CAB_FOLDER_SIZE, error))
+			return FALSE;
+		if (!fu_size_checked_inc(&offset, helper->rsvd_folder, error))
+			return FALSE;
 	}
 
 	/* parse CFFILEs */
@@ -764,18 +792,24 @@ fu_cab_firmware_write(FuFirmware *firmware, GError **error)
 
 	/* create header */
 	archive_size = FU_STRUCT_CAB_HEADER_SIZE;
-	archive_size += FU_STRUCT_CAB_FOLDER_SIZE;
+	if (!fu_size_checked_inc(&archive_size, FU_STRUCT_CAB_FOLDER_SIZE, error))
+		return NULL;
 	for (guint i = 0; i < imgs->len; i++) {
 		FuFirmware *img = g_ptr_array_index(imgs, i);
 		const gchar *filename_win32 = fu_cab_image_get_win32_filename(FU_CAB_IMAGE(img));
-		archive_size += FU_STRUCT_CAB_FILE_SIZE + strlen(filename_win32) + 1;
+		gsize file_entry_size = FU_STRUCT_CAB_FILE_SIZE + strlen(filename_win32) + 1;
+		if (!fu_size_checked_inc(&archive_size, file_entry_size, error))
+			return NULL;
 	}
 	for (guint i = 0; i < chunks_zlib->len; i++) {
 		GByteArray *chunk = g_ptr_array_index(chunks_zlib, i);
-		archive_size += FU_STRUCT_CAB_DATA_SIZE + chunk->len;
+		gsize chunk_entry_size = FU_STRUCT_CAB_DATA_SIZE + chunk->len;
+		if (!fu_size_checked_inc(&archive_size, chunk_entry_size, error))
+			return NULL;
 	}
 	offset = FU_STRUCT_CAB_HEADER_SIZE;
-	offset += FU_STRUCT_CAB_FOLDER_SIZE;
+	if (!fu_size_checked_inc(&offset, FU_STRUCT_CAB_FOLDER_SIZE, error))
+		return NULL;
 	fu_struct_cab_header_set_size(st_hdr, archive_size);
 	fu_struct_cab_header_set_off_cffile(st_hdr, offset);
 	fu_struct_cab_header_set_nr_files(st_hdr, imgs->len);
@@ -784,8 +818,9 @@ fu_cab_firmware_write(FuFirmware *firmware, GError **error)
 	for (guint i = 0; i < imgs->len; i++) {
 		FuFirmware *img = g_ptr_array_index(imgs, i);
 		const gchar *filename_win32 = fu_cab_image_get_win32_filename(FU_CAB_IMAGE(img));
-		offset += FU_STRUCT_CAB_FILE_SIZE;
-		offset += strlen(filename_win32) + 1;
+		gsize file_size = FU_STRUCT_CAB_FILE_SIZE + strlen(filename_win32) + 1;
+		if (!fu_size_checked_inc(&offset, file_size, error))
+			return NULL;
 	}
 	fu_struct_cab_folder_set_offset(st_folder, offset);
 	fu_struct_cab_folder_set_ndatab(st_folder, fu_chunk_array_length(chunks));
@@ -907,6 +942,11 @@ fu_cab_firmware_init(FuCabFirmware *self)
 	fu_firmware_add_flag(FU_FIRMWARE(self), FU_FIRMWARE_FLAG_HAS_CHECKSUM);
 	fu_firmware_add_flag(FU_FIRMWARE(self), FU_FIRMWARE_FLAG_DEDUPE_ID);
 	fu_firmware_set_images_max(FU_FIRMWARE(self), G_MAXUINT16);
+#ifdef __x86_64__
+	fu_firmware_set_size_max(FU_FIRMWARE(self), 16 * FU_GB);
+#else
+	fu_firmware_set_size_max(FU_FIRMWARE(self), 1 * FU_GB);
+#endif
 }
 
 /**

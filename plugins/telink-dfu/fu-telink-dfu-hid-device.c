@@ -42,6 +42,7 @@ fu_telink_dfu_hid_device_create_packet(FuTelinkDfuCmd cmd,
 				       GError **error)
 {
 	guint16 ota_data_len;
+	guint16 crc = 0;
 	g_autoptr(FuStructTelinkDfuHidPkt) st_pkt = fu_struct_telink_dfu_hid_pkt_new();
 	g_autoptr(FuStructTelinkDfuHidPktPayload) st_payload =
 	    fu_struct_telink_dfu_hid_pkt_payload_new();
@@ -73,9 +74,15 @@ fu_telink_dfu_hid_device_create_packet(FuTelinkDfuCmd cmd,
 	}
 
 	/* exclude the ota_cmd field */
-	fu_struct_telink_dfu_hid_pkt_payload_set_crc(
-	    st_payload,
-	    ~fu_crc16(FU_CRC_KIND_B16_USB, st_payload->buf->data, st_payload->buf->len - 2));
+	if (!fu_crc16_safe(FU_CRC_KIND_B16_USB,
+			   st_payload->buf->data,
+			   st_payload->buf->len,
+			   0x0,
+			   st_payload->buf->len - 2,
+			   &crc,
+			   error))
+		return NULL;
+	fu_struct_telink_dfu_hid_pkt_payload_set_crc(st_payload, ~crc);
 	fu_struct_telink_dfu_hid_pkt_set_ota_data_len(st_pkt, ota_data_len);
 	if (!fu_struct_telink_dfu_hid_pkt_set_payload(st_pkt, st_payload, error))
 		return NULL;
@@ -382,7 +389,6 @@ fu_telink_dfu_hid_device_set_quirk_kv(FuDevice *device,
 static void
 fu_telink_dfu_hid_device_init(FuTelinkDfuHidDevice *self)
 {
-	fu_device_set_vendor(FU_DEVICE(self), "Telink");
 	/* read the ReleaseNumber field of USB descriptor */
 	fu_device_set_version_format(FU_DEVICE(self), FWUPD_VERSION_FORMAT_PAIR);
 	fu_device_set_remove_delay(FU_DEVICE(self), 10000); /* ms */

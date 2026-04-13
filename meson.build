@@ -1,7 +1,7 @@
 project(
   'fwupd',
   'c',
-  version: '2.1.1',
+  version: '2.1.2',
   license: 'LGPL-2.1-or-later',
   meson_version: '>=0.63.0', # limited by RHEL-9
   default_options: ['warning_level=2', 'c_std=c17'],
@@ -229,6 +229,8 @@ libdir = join_paths(prefix, get_option('libdir'))
 libexecdir = join_paths(prefix, get_option('libexecdir'))
 #this ends up in compiled code, ignore prefix
 if host_machine.system() == 'windows'
+  # require Windows 8+ for GetFirmwareType() and other modern APIs
+  add_project_arguments('-D_WIN32_WINNT=0x0602', language: 'c')
   sysconfdir = get_option('sysconfdir')
   localstatedir = get_option('localstatedir')
   datadir = get_option('datadir')
@@ -453,17 +455,6 @@ if gnutls.found()
 endif
 
 lzma = dependency('liblzma')
-cbor = dependency(
-  'libcbor',
-  version: '>= 0.7.0',
-  required: get_option('cbor'),
-)
-if cbor.found()
-  conf.set('HAVE_CBOR', '1')
-  if cc.has_header_symbol('cbor.h', 'cbor_set_allocs')
-    conf.set('HAVE_CBOR_SET_ALLOCS', '1')
-  endif
-endif
 
 platform_deps = []
 if get_option('default_library') != 'static'
@@ -635,6 +626,7 @@ if host_machine.system() == 'darwin'
       'launchd_agent_dir': get_option('launchd_agent_dir'),
     },
     section: 'Darwin options',
+    bool_yn: true,
   )
 endif
 
@@ -772,12 +764,12 @@ libdrm_amdgpu = dependency(
 root_incdir = include_directories('.')
 
 fwupd_gir = []
-gir_dep = dependency(
+gobject_introspection_dep = dependency(
   'gobject-introspection-1.0',
   required: get_option('introspection'),
 )
 introspection = get_option('introspection').disable_auto_if(host_machine.system() != 'linux').disable_auto_if(
-  not gir_dep.found()
+  not gobject_introspection_dep.found()
 )
 
 gidocgen_dep = dependency(
@@ -918,6 +910,7 @@ if libsystemd.found()
       'systemd sysusers dir': systemd_sysusers_dir,
     },
     section: 'systemd options',
+    bool_yn: true,
   )
 endif
 
@@ -927,11 +920,11 @@ summary(
     'fwupd (daemon)': build_daemon,
   },
   section: 'build targets',
+  bool_yn: true,
 )
 
 summary(
   {
-    'cbor': cbor,
     'dbus_socket_address': get_option('dbus_socket_address'),
     'vendor_ids_dir': vendor_ids_dir,
     'docs': build_docs,
@@ -949,6 +942,7 @@ summary(
     'umockdev_tests': umockdev_integration_tests.allowed(),
   },
   section: 'project features',
+  bool_yn: true,
 )
 
 if build_daemon
@@ -962,6 +956,7 @@ if build_daemon
       'PKCS7 support': supported_pkcs7,
     },
     section: 'daemon features',
+    bool_yn: true,
   )
   en = []
   dis = []
@@ -978,5 +973,6 @@ if build_daemon
       'disabled': ', '.join(dis),
     },
     section: 'plugins',
+    bool_yn: true,
   )
 endif

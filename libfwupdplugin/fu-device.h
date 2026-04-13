@@ -97,6 +97,7 @@ struct _FuDeviceClass {
 				   FuFirmware *firmware,
 				   FuFirmwareParseFlags flags,
 				   GError **error) G_GNUC_WARN_UNUSED_RESULT;
+	void (*incorporate_from_proxy)(FuDevice *self, FuDevice *donor);
 #endif
 };
 
@@ -153,6 +154,7 @@ fu_device_new(FuContext *ctx);
 #define fu_device_set_plugin(d, v)	 fwupd_device_set_plugin(FWUPD_DEVICE(d), v)
 #define fu_device_set_serial(d, v)	 fwupd_device_set_serial(FWUPD_DEVICE(d), v)
 #define fu_device_set_summary(d, v)	 fwupd_device_set_summary(FWUPD_DEVICE(d), v)
+#define fu_device_set_details_url(d, v)	 fwupd_device_set_details_url(FWUPD_DEVICE(d), v)
 #define fu_device_set_branch(d, v)	 fwupd_device_set_branch(FWUPD_DEVICE(d), v)
 #define fu_device_set_update_error(d, v) fwupd_device_set_update_error(FWUPD_DEVICE(d), v)
 #define fu_device_add_vendor_id(d, v)	 fwupd_device_add_vendor_id(FWUPD_DEVICE(d), v)
@@ -174,6 +176,7 @@ fu_device_new(FuContext *ctx);
 #define fu_device_get_name(d)		     fwupd_device_get_name(FWUPD_DEVICE(d))
 #define fu_device_get_serial(d)		     fwupd_device_get_serial(FWUPD_DEVICE(d))
 #define fu_device_get_summary(d)	     fwupd_device_get_summary(FWUPD_DEVICE(d))
+#define fu_device_get_details_url(d)	     fwupd_device_get_details_url(FWUPD_DEVICE(d))
 #define fu_device_get_branch(d)		     fwupd_device_get_branch(FWUPD_DEVICE(d))
 #define fu_device_get_id(d)		     fwupd_device_get_id(FWUPD_DEVICE(d))
 #define fu_device_get_composite_id(d)	     fwupd_device_get_composite_id(FWUPD_DEVICE(d))
@@ -183,10 +186,12 @@ fu_device_new(FuContext *ctx);
 #define fu_device_get_vendor(d)		     fwupd_device_get_vendor(FWUPD_DEVICE(d))
 #define fu_device_get_version(d)	     fwupd_device_get_version(FWUPD_DEVICE(d))
 #define fu_device_get_version_lowest(d)	     fwupd_device_get_version_lowest(FWUPD_DEVICE(d))
+#define fu_device_get_version_highest(d)     fwupd_device_get_version_highest(FWUPD_DEVICE(d))
 #define fu_device_get_version_bootloader(d)  fwupd_device_get_version_bootloader(FWUPD_DEVICE(d))
 #define fu_device_get_version_format(d)	     fwupd_device_get_version_format(FWUPD_DEVICE(d))
 #define fu_device_get_version_raw(d)	     fwupd_device_get_version_raw(FWUPD_DEVICE(d))
 #define fu_device_get_version_lowest_raw(d)  fwupd_device_get_version_lowest_raw(FWUPD_DEVICE(d))
+#define fu_device_get_version_highest_raw(d) fwupd_device_get_version_highest_raw(FWUPD_DEVICE(d))
 #define fu_device_get_version_bootloader_raw(d)                                                    \
 	fwupd_device_get_version_bootloader_raw(FWUPD_DEVICE(d))
 #define fu_device_get_version_build_date(d) fwupd_device_get_version_build_date(FWUPD_DEVICE(d))
@@ -1038,11 +1043,15 @@ fu_device_set_version(FuDevice *self, const gchar *version) G_GNUC_NON_NULL(1);
 void
 fu_device_set_version_lowest(FuDevice *self, const gchar *version) G_GNUC_NON_NULL(1);
 void
+fu_device_set_version_highest(FuDevice *self, const gchar *version) G_GNUC_NON_NULL(1);
+void
 fu_device_set_version_bootloader(FuDevice *self, const gchar *version) G_GNUC_NON_NULL(1);
 void
 fu_device_set_version_raw(FuDevice *self, guint64 version_raw) G_GNUC_NON_NULL(1);
 void
 fu_device_set_version_lowest_raw(FuDevice *self, guint64 version_raw) G_GNUC_NON_NULL(1);
+void
+fu_device_set_version_highest_raw(FuDevice *self, guint64 version_raw) G_GNUC_NON_NULL(1);
 void
 fu_device_inhibit(FuDevice *self, const gchar *inhibit_id, const gchar *reason)
     G_GNUC_NON_NULL(1, 2);

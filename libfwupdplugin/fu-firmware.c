@@ -68,6 +68,7 @@ G_DEFINE_TYPE_EXTENDED(FuFirmware,
 enum { PROP_0, PROP_PARENT, PROP_LAST };
 
 #define FU_FIRMWARE_IMAGE_DEPTH_MAX 50
+#define FU_FIRMWARE_SIZE_MAX_DEFAULT ((100 * FU_MB) + 1)
 
 typedef struct {
 	gsize offset;
@@ -515,7 +516,7 @@ fu_firmware_set_size_max(FuFirmware *self, gsize size_max)
  *
  * Gets the maximum size of the image allowed during parsing.
  *
- * Returns: integer, or 0 if not set
+ * Returns: integer, or the default of ~100MiB if not set.
  *
  * Since: 1.9.7
  **/
@@ -1128,11 +1129,21 @@ fu_firmware_parse_stream(FuFirmware *self,
 		g_set_error(error,
 			    FWUPD_ERROR,
 			    FWUPD_ERROR_INVALID_FILE,
-			    "firmware is too large (%s, limit %s)",
+			    "%s firmware is too large (%s, limit %s)",
+			    G_OBJECT_TYPE_NAME(self),
 			    sz_val,
 			    sz_max);
 		return FALSE;
 	}
+
+#ifndef SUPPORTED_BUILD
+	/* we want all firmware subclasses to set this now */
+	if (G_OBJECT_TYPE(self) != FU_TYPE_FIRMWARE &&
+	    priv->size_max == FU_FIRMWARE_SIZE_MAX_DEFAULT) {
+		g_critical("%s did not set firmware max size with fu_firmware_set_size_max()",
+			   G_OBJECT_TYPE_NAME(self));
+	}
+#endif
 
 	/* any FuFirmware subclass that gets past this point might have allocated memory in
 	 * ->tokenize() or ->parse() and needs to be destroyed before parsing again */
@@ -1693,6 +1704,12 @@ fu_firmware_write_chunk(FuFirmware *self, guint64 address, guint64 chunk_sz_max,
 
 	g_return_val_if_fail(FU_IS_FIRMWARE(self), NULL);
 	g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+
+	/* check bytes are set */
+	if (priv->bytes == NULL) {
+		g_set_error_literal(error, FWUPD_ERROR, FWUPD_ERROR_NOT_FOUND, "no payload set");
+		return NULL;
+	}
 
 	/* check address requested is larger than base address */
 	if (address < priv->addr) {
@@ -2449,7 +2466,8 @@ fu_firmware_export(FuFirmware *self, FuFirmwareExportFlags flags, XbBuilderNode 
 	fu_xmlb_builder_insert_kx(bn, "offset", priv->offset);
 	fu_xmlb_builder_insert_kx(bn, "alignment", priv->alignment);
 	fu_xmlb_builder_insert_kx(bn, "size", priv->size);
-	fu_xmlb_builder_insert_kx(bn, "size_max", priv->size_max);
+	if (priv->size_max != FU_FIRMWARE_SIZE_MAX_DEFAULT)
+		fu_xmlb_builder_insert_kx(bn, "size_max", priv->size_max);
 	fu_xmlb_builder_insert_kv(bn, "filename", priv->filename);
 	if (priv->stream != NULL) {
 		g_autofree gchar *dataszstr = g_strdup_printf("0x%x", (guint)priv->streamsz);
@@ -2633,6 +2651,7 @@ fu_firmware_init(FuFirmware *self)
 {
 	FuFirmwarePrivate *priv = GET_PRIVATE(self);
 	priv->images = g_ptr_array_new_with_free_func((GDestroyNotify)g_object_unref);
+	priv->size_max = FU_FIRMWARE_SIZE_MAX_DEFAULT;
 }
 
 static void
@@ -2645,6 +2664,9 @@ fu_firmware_constructed(GObject *obj)
 	if (G_TYPE_FROM_CLASS(klass) != FU_TYPE_FIRMWARE && klass->parse_full == NULL &&
 	    klass->parse == NULL)
 		fu_firmware_add_flag(self, FU_FIRMWARE_FLAG_IS_ABSTRACT);
+
+	/* chain up to parent */
+	G_OBJECT_CLASS(fu_firmware_parent_class)->constructed(obj);
 }
 
 static void

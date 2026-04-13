@@ -147,11 +147,11 @@ fu_flashrom_plugin_device_set_bios_info(FuPlugin *plugin, FuDevice *device, GErr
 						    G_LITTLE_ENDIAN,
 						    error))
 				return FALSE;
-			firmware_size = (bios_sz_ext & 0x3ff) * (1024 * 1024);
+			firmware_size = (bios_sz_ext & 0x3ff) * FU_MB;
 			if (bios_sz_ext & 0xc000)
 				firmware_size *= 1024;
 		} else {
-			firmware_size = (bios_sz + 1) * 64 * 1024;
+			firmware_size = (bios_sz + 1) * 64 * FU_KB;
 		}
 		fu_device_set_firmware_size_max(device, firmware_size);
 	}
@@ -388,6 +388,8 @@ fu_flashrom_plugin_constructed(GObject *obj)
 	fu_plugin_add_flag(plugin, FWUPD_PLUGIN_FLAG_REQUIRE_HWID);
 	fu_plugin_add_flag(plugin, FWUPD_PLUGIN_FLAG_MEASURE_SYSTEM_INTEGRITY);
 	fu_plugin_add_device_gtype(plugin, FU_TYPE_FLASHROM_DEVICE); /* coverage */
+
+	/* nocheck:finalize */
 }
 
 static void

@@ -11,10 +11,12 @@
 #include <string.h>
 
 #include "fu-byte-array.h"
+#include "fu-common.h"
 #include "fu-firmware-common.h"
 #include "fu-ihex-firmware.h"
 #include "fu-mem.h"
 #include "fu-string.h"
+#include "fu-sum.h"
 
 /**
  * FuIhexFirmware:
@@ -239,13 +241,34 @@ fu_ihex_firmware_parse(FuFirmware *firmware,
 	for (guint k = 0; k < priv->records->len; k++) {
 		FuIhexFirmwareRecord *rcd = g_ptr_array_index(priv->records, k);
 		guint16 addr16 = 0;
-		guint32 addr = rcd->addr + seg_addr + abs_addr;
+		gsize addr;
 		guint32 len_hole;
+
+		/* calculate address with overflow checking */
+		addr = rcd->addr;
+		if (!fu_size_checked_inc(&addr, seg_addr, error)) {
+			g_prefix_error(error, "address overflow on line %u: ", rcd->ln);
+			return FALSE;
+		}
+		if (!fu_size_checked_inc(&addr, abs_addr, error)) {
+			g_prefix_error(error, "address overflow on line %u: ", rcd->ln);
+			return FALSE;
+		}
+		if (addr > G_MAXUINT32) {
+			g_set_error(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INVALID_DATA,
+				    "address 0x%" G_GSIZE_MODIFIER
+				    "x exceeds 32-bit limit on line %u",
+				    addr,
+				    rcd->ln);
+			return FALSE;
+		}
 
 		/* debug */
 		g_debug("%s:", fu_ihex_firmware_record_type_to_string(rcd->record_type));
 		g_debug("length:\t0x%02x", rcd->data->len);
-		g_debug("addr:\t0x%08x", addr);
+		g_debug("addr:\t0x%08x", (guint)addr);
 
 		/* sanity check */
 		if (rcd->record_type != FU_IHEX_FIRMWARE_RECORD_TYPE_EOF && rcd->data->len == 0) {
@@ -295,7 +318,7 @@ fu_ihex_firmware_parse(FuFirmware *firmware,
 
 			/* any holes in the hex record */
 			len_hole = addr - addr_last;
-			if (addr_last > 0 && len_hole > 0x100000) {
+			if (addr_last > 0 && len_hole > 1 * FU_MB) {
 				g_set_error(error,
 					    FWUPD_ERROR,
 					    FWUPD_ERROR_INVALID_FILE,
@@ -447,8 +470,7 @@ fu_ihex_firmware_emit_chunk(GString *str,
 	checksum += (guint8)((address & 0xff00) >> 8);
 	checksum += (guint8)(address & 0xff);
 	checksum += record_type;
-	for (gsize j = 0; j < sz; j++)
-		checksum += data[j];
+	checksum += fu_sum8(data, sz);
 	g_string_append_printf(str, "%02X\n", (guint)(((~checksum) + 0x01) & 0xff));
 }
 
@@ -545,6 +567,7 @@ fu_ihex_firmware_init(FuIhexFirmware *self)
 	fu_firmware_add_flag(FU_FIRMWARE(self), FU_FIRMWARE_FLAG_HAS_CHECKSUM);
 	fu_firmware_add_image_gtype(FU_FIRMWARE(self), FU_TYPE_FIRMWARE);
 	fu_firmware_set_images_max(FU_FIRMWARE(self), 10);
+	fu_firmware_set_size_max(FU_FIRMWARE(self), 256 * FU_MB);
 }
 
 static void

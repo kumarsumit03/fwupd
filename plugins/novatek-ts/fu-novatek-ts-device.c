@@ -354,7 +354,10 @@ fu_novatek_ts_device_gcm_xfer(FuNovatekTsDevice *self, FuNovatekTsGcmXfer *xfer,
 					       xfer->tx_len,
 					       FU_CHUNK_ADDR_OFFSET_NONE,
 					       FU_CHUNK_PAGESZ_NONE,
-					       NVT_TRANSFER_LEN);
+					       NVT_TRANSFER_LEN,
+					       error);
+		if (chunks_tx == NULL)
+			return FALSE;
 		for (guint i = 0; i < chunks_tx->len; i++) {
 			FuChunk *chk = g_ptr_array_index(chunks_tx, i);
 			if (!fu_novatek_ts_device_gcm_xfer_tx_chunk(self,
@@ -403,7 +406,10 @@ fu_novatek_ts_device_gcm_xfer(FuNovatekTsDevice *self, FuNovatekTsGcmXfer *xfer,
 					       xfer->rx_len,
 					       FU_CHUNK_ADDR_OFFSET_NONE,
 					       FU_CHUNK_PAGESZ_NONE,
-					       NVT_TRANSFER_LEN);
+					       NVT_TRANSFER_LEN,
+					       error);
+		if (chunks_rx == NULL)
+			return FALSE;
 		for (guint i = 0; i < chunks_rx->len; i++) {
 			FuChunk *chk = g_ptr_array_index(chunks_rx, i);
 			if (!fu_novatek_ts_device_gcm_xfer_rx_chunk(self,
@@ -514,7 +520,7 @@ fu_novatek_ts_device_get_fw_ver_cb(FuDevice *device, gpointer user_data, GError 
 		return FALSE;
 	if ((guint8)(ctx->buf[0] + ctx->buf[1]) == 0xFF)
 		return TRUE;
-	g_set_error_literal(error, FWUPD_ERROR, FWUPD_ERROR_BUSY, "fw info not ready");
+	g_set_error_literal(error, FWUPD_ERROR, FWUPD_ERROR_INVALID_DATA, "fw info not ready");
 	return FALSE;
 }
 
@@ -626,8 +632,7 @@ fu_novatek_ts_device_page_program_gcm(FuNovatekTsDevice *self,
 	checksum += ((flash_addr >> 16) & 0xFF);
 	checksum += ((bufsz + 3) & 0xFF);
 	checksum += (((bufsz + 3) >> 8) & 0xFF);
-	for (guint i = 0; i < bufsz; i++)
-		checksum += buf[i];
+	checksum += fu_sum16(buf, bufsz);
 	checksum = ~checksum + 1;
 
 	/* prepare gcm command transfer */
@@ -867,7 +872,10 @@ fu_novatek_ts_device_gcm_erase_flash(FuNovatekTsDevice *self,
 				    bin_size,
 				    self->flash_start_addr,
 				    FU_CHUNK_PAGESZ_NONE,
-				    FLASH_SECTOR_SIZE);
+				    FLASH_SECTOR_SIZE,
+				    error);
+	if (chunks == NULL)
+		return FALSE;
 	for (guint32 i = 0; i < chunks->len; i++) {
 		FuChunk *chk = g_ptr_array_index(chunks, i);
 		guint32 flash_address = (guint32)fu_chunk_get_address(chk);
@@ -1226,17 +1234,25 @@ static gboolean
 fu_novatek_ts_device_ensure_fw_ver(FuNovatekTsDevice *self, GError **error)
 {
 	FuNovatekTsFwVerCtx ctx = {0};
+	g_autoptr(GError) error_local = NULL;
 
 	if (!fu_device_retry(FU_DEVICE(self),
 			     fu_novatek_ts_device_get_fw_ver_cb,
 			     10,
 			     &ctx,
-			     error)) {
-		g_prefix_error(error,
-			       "fw info is broken, fw_ver=0x%02x, ~fw_ver=0x%02x: ",
-			       ctx.buf[0],
-			       ctx.buf[1]);
-		return FALSE;
+			     &error_local)) {
+		if (!g_error_matches(error_local, FWUPD_ERROR, FWUPD_ERROR_INVALID_DATA)) {
+			g_propagate_prefixed_error(
+			    error,
+			    g_steal_pointer(&error_local),
+			    "fw info is broken, fw_ver=0x%02x, ~fw_ver=0x%02x: ",
+			    ctx.buf[0],
+			    ctx.buf[1]);
+			return FALSE;
+		}
+		g_warning("firmware version unavailable: %s", error_local->message);
+		fu_device_set_version_raw(FU_DEVICE(self), 0);
+		return TRUE;
 	}
 
 	/* success */
@@ -1521,10 +1537,13 @@ fu_novatek_ts_device_init(FuNovatekTsDevice *self)
 }
 
 static void
-fu_novatek_ts_device_constructed(GObject *object)
+fu_novatek_ts_device_constructed(GObject *obj)
 {
-	FuNovatekTsDevice *self = FU_NOVATEK_TS_DEVICE(object);
+	FuNovatekTsDevice *self = FU_NOVATEK_TS_DEVICE(obj);
 	self->cfi_device = fu_cfi_device_new(FU_DEVICE(self), NULL);
+
+	/* chain up to parent */
+	G_OBJECT_CLASS(fu_novatek_ts_device_parent_class)->constructed(obj);
 }
 
 static void

@@ -223,13 +223,12 @@ fu_bnr_dp_firmware_payload_parse(FuBnrDpFirmware *self,
 		return FALSE;
 	}
 	if (streamsz != FU_BNR_DP_FIRMWARE_SIZE) {
-		g_set_error(
-		    error,
-		    FWUPD_ERROR,
-		    FWUPD_ERROR_INVALID_FILE,
-		    "unexpected firmware payload length (must be: %d, actual: %" G_GSIZE_FORMAT ")",
-		    FU_BNR_DP_FIRMWARE_SIZE,
-		    streamsz);
+		g_set_error(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_INVALID_FILE,
+			    "unexpected payload (must be: 0x%x, actual: %" G_GSIZE_FORMAT ")",
+			    (guint)FU_BNR_DP_FIRMWARE_SIZE,
+			    streamsz);
 		return FALSE;
 	}
 
@@ -424,7 +423,7 @@ fu_bnr_dp_firmware_patch_boot_counter(FuBnrDpFirmware *self,
 				      guint32 active_boot_counter,
 				      GError **error)
 {
-	guint16 crc;
+	guint16 crc = 0;
 	g_autoptr(FuStructBnrDpPayloadHeader) st_header = NULL;
 	g_autoptr(GBytes) image = NULL;
 	g_autoptr(GBytes) patch = NULL;
@@ -448,9 +447,14 @@ fu_bnr_dp_firmware_patch_boot_counter(FuBnrDpFirmware *self,
 		return FALSE;
 
 	/* check that the current CRC was correct */
-	crc = fu_crc16(FU_CRC_KIND_B16_BNR,
-		       st_header->buf->data,
-		       FU_STRUCT_BNR_DP_PAYLOAD_HEADER_SIZE - sizeof(crc));
+	if (!fu_crc16_safe(FU_CRC_KIND_B16_BNR,
+			   st_header->buf->data,
+			   st_header->buf->len,
+			   0x0,
+			   FU_STRUCT_BNR_DP_PAYLOAD_HEADER_SIZE - sizeof(crc),
+			   &crc,
+			   error))
+		return FALSE;
 	if (fu_struct_bnr_dp_payload_header_get_crc(st_header) != crc) {
 		g_set_error(
 		    error,
@@ -473,10 +477,14 @@ fu_bnr_dp_firmware_patch_boot_counter(FuBnrDpFirmware *self,
 		~FU_BNR_DP_PAYLOAD_FLAG_CRC_ERROR);
 
 	/* update checksum */
-	crc = fu_crc16(FU_CRC_KIND_B16_BNR,
-		       st_header->buf->data,
-		       FU_STRUCT_BNR_DP_PAYLOAD_HEADER_SIZE - sizeof(crc));
-
+	if (!fu_crc16_safe(FU_CRC_KIND_B16_BNR,
+			   st_header->buf->data,
+			   st_header->buf->len,
+			   0x0,
+			   FU_STRUCT_BNR_DP_PAYLOAD_HEADER_SIZE - sizeof(crc),
+			   &crc,
+			   error))
+		return FALSE;
 	fu_struct_bnr_dp_payload_header_set_crc(st_header, crc);
 
 	patch = fu_struct_bnr_dp_payload_header_to_bytes(st_header);
@@ -558,6 +566,7 @@ fu_bnr_dp_firmware_check(FuBnrDpFirmware *self,
 static void
 fu_bnr_dp_firmware_init(FuBnrDpFirmware *self)
 {
+	fu_firmware_set_size_max(FU_FIRMWARE(self), 16 * FU_MB);
 }
 
 static void

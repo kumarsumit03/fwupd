@@ -1604,6 +1604,7 @@ fu_util_get_details(FuUtil *self, gchar **values, GError **error)
 		g_autoptr(FwupdJsonObject) json_obj = fwupd_json_object_new();
 		fwupd_codec_array_to_json(array, "Devices", json_obj, FWUPD_CODEC_FLAG_TRUSTED);
 		fu_util_print_json_object(self->console, json_obj);
+		return TRUE;
 	}
 
 	fu_util_build_device_tree(self, root, array, NULL);
@@ -1989,6 +1990,7 @@ fu_util_get_history(FuUtil *self, gchar **values, GError **error)
 		g_autoptr(FwupdJsonObject) json_obj = fwupd_json_object_new();
 		fwupd_codec_array_to_json(devices, "Devices", json_obj, FWUPD_CODEC_FLAG_TRUSTED);
 		fu_util_print_json_object(self->console, json_obj);
+		return TRUE;
 	}
 
 	/* show each device */
@@ -2399,6 +2401,7 @@ fu_util_get_results(FuUtil *self, gchar **values, GError **error)
 		g_autoptr(FwupdJsonObject) json_obj = fwupd_json_object_new();
 		fwupd_codec_to_json(FWUPD_CODEC(rel), json_obj, FWUPD_CODEC_FLAG_TRUSTED);
 		fu_util_print_json_object(self->console, json_obj);
+		return TRUE;
 	}
 	tmp = fu_util_device_to_string(self->client, rel, 0);
 	fu_console_print_literal(self->console, tmp);
@@ -2435,7 +2438,7 @@ fu_util_get_releases(FuUtil *self, gchar **values, GError **error)
 		fu_console_print_literal(self->console, _("No releases available"));
 		return TRUE;
 	}
-	if (g_getenv("FWUPD_VERBOSE") != NULL) {
+	if (g_log_get_debug_enabled()) {
 		for (guint i = 0; i < rels->len; i++) {
 			FwupdRelease *rel = g_ptr_array_index(rels, i);
 			g_autofree gchar *tmp = NULL;
@@ -2495,7 +2498,7 @@ fu_util_search(FuUtil *self, gchar **values, GError **error)
 				    _("No matching releases for search token"));
 		return FALSE;
 	}
-	if (g_getenv("FWUPD_VERBOSE") != NULL) {
+	if (g_log_get_debug_enabled()) {
 		for (guint i = 0; i < rels->len; i++) {
 			FwupdRelease *rel = g_ptr_array_index(rels, i);
 			g_autofree gchar *tmp = NULL;
@@ -2846,6 +2849,7 @@ fu_util_get_remotes(FuUtil *self, gchar **values, GError **error)
 		g_autoptr(FwupdJsonObject) json_obj = fwupd_json_object_new();
 		fwupd_codec_array_to_json(remotes, "Remotes", json_obj, FWUPD_CODEC_FLAG_TRUSTED);
 		fu_util_print_json_object(self->console, json_obj);
+		return TRUE;
 	}
 
 	if (remotes->len == 0) {
@@ -5804,8 +5808,11 @@ main(int argc, char *argv[])
 
 	/* set verbose? */
 	if (verbose) {
-		(void)g_setenv("G_MESSAGES_DEBUG", "all", FALSE);
-		(void)g_setenv("FWUPD_VERBOSE", "1", FALSE);
+#if GLIB_CHECK_VERSION(2, 72, 0)
+		g_log_set_debug_enabled(TRUE);
+#else
+		(void)g_setenv("FWUPD_VERBOSE", "1", TRUE);
+#endif
 	} else {
 		g_log_set_handler(G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG, fu_util_ignore_cb, NULL);
 	}

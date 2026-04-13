@@ -133,7 +133,9 @@ fu_synaptics_cxaudio_device_operation(FuSynapticsCxaudioDevice *self,
 	}
 
 	/* send to hardware */
-	chunks = fu_chunk_array_mutable_new(buf, bufsz, addr, 0x0, payload_max);
+	chunks = fu_chunk_array_mutable_new(buf, bufsz, addr, 0x0, payload_max, error);
+	if (chunks == NULL)
+		return FALSE;
 	for (guint i = 0; i < chunks->len; i++) {
 		FuChunk *chk = g_ptr_array_index(chunks, i);
 		guint8 inbuf[FU_SYNAPTICS_CXAUDIO_INPUT_REPORT_SIZE] = {0};
@@ -143,7 +145,7 @@ fu_synaptics_cxaudio_device_operation(FuSynapticsCxaudioDevice *self,
 		outbuf[0] = FU_SYNAPTICS_CXAUDIO_MEM_WRITEID;
 
 		/* set memory address and payload length (if relevant) */
-		if (fu_chunk_get_address(chk) >= 64 * 1024)
+		if (fu_chunk_get_address(chk) >= 64 * FU_KB)
 			FU_BIT_SET(outbuf[1], 4);
 		outbuf[2] = fu_chunk_get_data_sz(chk);
 		fu_memwrite_uint16(outbuf + 3, fu_chunk_get_address(chk), G_BIG_ENDIAN);
@@ -388,6 +390,7 @@ fu_synaptics_cxaudio_device_setup(FuDevice *device, GError **error)
 	g_autoptr(FuStructSynapticsCxaudioCustomInfo) st_inf = NULL;
 	g_autoptr(FuStructSynapticsCxaudioValiditySignature) st_sig = NULL;
 	guint8 cinfo[FU_STRUCT_SYNAPTICS_CXAUDIO_CUSTOM_INFO_SIZE] = {0x0};
+	guint8 eeprom_size_code;
 
 	/* FuUsbDevice->setup */
 	if (!FU_DEVICE_CLASS(fu_synaptics_cxaudio_device_parent_class)->setup(device, error))
@@ -474,9 +477,18 @@ fu_synaptics_cxaudio_device_setup(FuDevice *device, GError **error)
 	}
 
 	/* calculate EEPROM size */
-	self->eeprom_sz =
-	    (guint32)1
-	    << (fu_struct_synaptics_cxaudio_validity_signature_get_eeprom_size_code(st_sig) + 8);
+	eeprom_size_code =
+	    fu_struct_synaptics_cxaudio_validity_signature_get_eeprom_size_code(st_sig);
+	if (eeprom_size_code > 23) {
+		g_set_error(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_INVALID_DATA,
+			    "EEPROM size code %u would overflow",
+			    eeprom_size_code);
+		return FALSE;
+	}
+	self->eeprom_sz = (guint32)1 << (eeprom_size_code + 8);
+
 	if (!fu_synaptics_cxaudio_device_operation(self,
 						   FU_SYNAPTICS_CXAUDIO_OPERATION_READ,
 						   FU_SYNAPTICS_CXAUDIO_MEM_KIND_EEPROM,

@@ -58,7 +58,7 @@ fu_util_traverse_tree(FuUtilNode *n, gpointer data)
 	}
 
 	/* root node */
-	if (n->parent == NULL && g_getenv("FWUPD_VERBOSE") == NULL) {
+	if (n->parent == NULL && !g_log_get_debug_enabled()) {
 		g_autofree gchar *str =
 		    g_strdup_printf("%s %s",
 				    fwupd_client_get_host_vendor(helper->client),
@@ -1343,7 +1343,7 @@ fu_util_device_to_string(FwupdClient *client, FwupdDevice *dev, guint idt)
 	g_autoptr(GString) str = g_string_new(NULL);
 
 	/* some fields are intentionally not included and are only shown in --verbose */
-	if (g_getenv("FWUPD_VERBOSE") != NULL) {
+	if (g_log_get_debug_enabled()) {
 		g_autofree gchar *debug_str = fwupd_codec_to_string(FWUPD_CODEC(dev));
 		g_info("%s", debug_str);
 		return NULL;
@@ -1391,6 +1391,11 @@ fu_util_device_to_string(FwupdClient *client, FwupdDevice *dev, guint idt)
 				  fwupd_device_get_version_lowest(dev));
 	fwupd_codec_string_append(str,
 				  idt + 1,
+				  /* TRANSLATORS: largest version number installable on device */
+				  _("Maximum Version"),
+				  fwupd_device_get_version_highest(dev));
+	fwupd_codec_string_append(str,
+				  idt + 1,
 				  /* TRANSLATORS: firmware version of bootloader */
 				  _("Bootloader Version"),
 				  fwupd_device_get_version_bootloader(dev));
@@ -1410,6 +1415,9 @@ fu_util_device_to_string(FwupdClient *client, FwupdDevice *dev, guint idt)
 		/* TRANSLATORS: manufacturer of hardware */
 		fwupd_codec_string_append(str, idt + 1, _("Vendor"), strv);
 	}
+
+	/* TRANSLATORS: webpage for the specific device */
+	fwupd_codec_string_append(str, idt + 1, _("URL"), fwupd_device_get_details_url(dev));
 
 	/* branch */
 	fwupd_codec_string_append(str,
@@ -2470,6 +2478,11 @@ fu_util_security_event_to_string(FwupdSecurityAttr *attr)
 		      FWUPD_SECURITY_ATTR_RESULT_ENABLED,
 		      /* TRANSLATORS: HSI event title */
 		      _("HP SureStart is enabled")},
+		     {FWUPD_SECURITY_ATTR_ID_AMD_ENTRY_SIGN,
+		      FWUPD_SECURITY_ATTR_RESULT_NOT_LOCKED,
+		      FWUPD_SECURITY_ATTR_RESULT_LOCKED,
+		      /* TRANSLATORS: HSI event title */
+		      _("AMD microcode signature vulnerability fixed")},
 		     {NULL, 0, 0, NULL}};
 
 	/* sanity check */
@@ -2528,7 +2541,7 @@ fu_util_security_events_to_string(GPtrArray *events, FuSecurityAttrToStringFlags
 	g_autoptr(GString) str = g_string_new(NULL);
 
 	/* debugging */
-	if (g_getenv("FWUPD_VERBOSE") != NULL) {
+	if (g_log_get_debug_enabled()) {
 		for (guint i = 0; i < events->len; i++) {
 			FwupdSecurityAttr *attr = g_ptr_array_index(events, i);
 			g_autofree gchar *tmp = fwupd_codec_to_string(FWUPD_CODEC(attr));

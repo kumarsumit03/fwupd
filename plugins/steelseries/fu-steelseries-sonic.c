@@ -133,12 +133,14 @@ fu_steelseries_sonic_read_from_ram(FuSteelseriesSonic *self,
 {
 	g_autoptr(GPtrArray) chunks = NULL;
 
-	chunks =
-	    fu_chunk_array_mutable_new(buf,
-				       bufsz,
-				       0x0,
-				       0x0,
-				       FU_STRUCT_STEELSERIES_SONIC_READ_FROM_RAM_RES_SIZE_DATA);
+	chunks = fu_chunk_array_mutable_new(buf,
+					    bufsz,
+					    0x0,
+					    0x0,
+					    FU_STRUCT_STEELSERIES_SONIC_READ_FROM_RAM_RES_SIZE_DATA,
+					    error);
+	if (chunks == NULL)
+		return FALSE;
 	fu_progress_set_id(progress, G_STRLOC);
 	fu_progress_set_steps(progress, chunks->len);
 	for (guint i = 0; i < chunks->len; i++) {
@@ -200,7 +202,10 @@ fu_steelseries_sonic_read_from_flash(FuSteelseriesSonic *self,
 					    bufsz,
 					    address,
 					    0x0,
-					    FU_STEELSERIES_BUFFER_FLASH_TRANSFER_SIZE);
+					    FU_STEELSERIES_BUFFER_FLASH_TRANSFER_SIZE,
+					    error);
+	if (chunks == NULL)
+		return FALSE;
 	fu_progress_set_id(progress, G_STRLOC);
 	fu_progress_set_steps(progress, chunks->len);
 	for (guint i = 0; i < chunks->len; i++) {
@@ -809,7 +814,7 @@ fu_steelseries_sonic_parse_firmware(FuFirmware *firmware,
 				    FuFirmwareParseFlags flags,
 				    GError **error)
 {
-	guint32 checksum_tmp;
+	guint32 checksum_tmp = 0;
 	guint32 checksum;
 	g_autoptr(GBytes) blob = NULL;
 
@@ -824,9 +829,14 @@ fu_steelseries_sonic_parse_firmware(FuFirmware *firmware,
 				    G_LITTLE_ENDIAN,
 				    error))
 		return FALSE;
-	checksum_tmp = fu_crc32(FU_CRC_KIND_B32_STANDARD,
-				g_bytes_get_data(blob, NULL),
-				g_bytes_get_size(blob) - sizeof(checksum_tmp));
+	if (!fu_crc32_safe(FU_CRC_KIND_B32_STANDARD,
+			   g_bytes_get_data(blob, NULL),
+			   g_bytes_get_size(blob),
+			   0x0,
+			   g_bytes_get_size(blob) - sizeof(checksum_tmp),
+			   &checksum_tmp,
+			   error))
+		return FALSE;
 	checksum_tmp = ~checksum_tmp;
 	if (checksum_tmp != checksum) {
 		if ((flags & FU_FIRMWARE_PARSE_FLAG_IGNORE_CHECKSUM) == 0) {

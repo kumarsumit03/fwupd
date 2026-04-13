@@ -43,6 +43,8 @@ G_DEFINE_TYPE(FuParadeUsbhubDevice, fu_parade_usbhub_device, FU_TYPE_USB_DEVICE)
 #define FU_PARADE_USBHUB_DEVICE_SPI_RETRY_COUNT 100
 #define FU_PARADE_USBHUB_DEVICE_SPI_RETRY_DELAY 50 /* ms */
 
+#define FU_PARADE_USBHUB_DEVICE_FLAG_USE_GPIO_ENABLE "use-gpio-enable"
+
 static void
 fu_parade_usbhub_device_to_string(FuDevice *device, guint idt, GString *str)
 {
@@ -375,7 +377,10 @@ fu_parade_usbhub_device_spi_data_read(FuParadeUsbhubDevice *self,
 					    bufsz,
 					    spi_address,
 					    0x0,
-					    FU_PARADE_USBHUB_DEVICE_SPI_BURST_DBI_MAX);
+					    FU_PARADE_USBHUB_DEVICE_SPI_BURST_DBI_MAX,
+					    error);
+	if (chunks == NULL)
+		return FALSE;
 	for (guint i = 0; i < chunks->len; i++) {
 		FuChunk *chk = g_ptr_array_index(chunks, i);
 		if (!fu_parade_usbhub_device_spi_read_dma_dbi(self,
@@ -419,7 +424,10 @@ fu_parade_usbhub_device_spi_data_write(FuParadeUsbhubDevice *self,
 					    bufsz,
 					    spi_address,
 					    0x0,
-					    FU_PARADE_USBHUB_DEVICE_SPI_BURST_DBI_MAX);
+					    FU_PARADE_USBHUB_DEVICE_SPI_BURST_DBI_MAX,
+					    error);
+	if (chunks == NULL)
+		return FALSE;
 	for (guint i = 0; i < chunks->len; i++) {
 		FuChunk *chk = g_ptr_array_index(chunks, i);
 		if (!fu_parade_usbhub_device_spi_write_dma_dbi(self,
@@ -693,7 +701,10 @@ fu_parade_usbhub_device_spi_rom_erase(FuParadeUsbhubDevice *self,
 				    bufsz,
 				    self->spi_address,
 				    0,
-				    FU_PARADE_USBHUB_SPI_ROM_ERASE_SIZE);
+				    FU_PARADE_USBHUB_SPI_ROM_ERASE_SIZE,
+				    error);
+	if (chunks == NULL)
+		return FALSE;
 	fu_progress_set_id(progress, G_STRLOC);
 	fu_progress_set_steps(progress, chunks->len);
 	for (guint i = 0; i < chunks->len; i++) {
@@ -741,8 +752,11 @@ fu_parade_usbhub_device_sram_page_write(FuParadeUsbhubDevice *self,
 	chunks = fu_chunk_array_mutable_new(buf,
 					    bufsz,
 					    sram_address,
-					    0x1000,
-					    FU_PARADE_USBHUB_DEVICE_MMIO_BURST_WRITE_MAX);
+					    4 * FU_KB,
+					    FU_PARADE_USBHUB_DEVICE_MMIO_BURST_WRITE_MAX,
+					    error);
+	if (chunks == NULL)
+		return FALSE;
 	for (guint i = 0; i < chunks->len; i++) {
 		FuChunk *chk = g_ptr_array_index(chunks, i);
 
@@ -816,7 +830,10 @@ fu_parade_usbhub_device_spi_rom_write(FuParadeUsbhubDevice *self,
 					    blob->len,
 					    self->spi_address,
 					    0, /* page */
-					    FU_PARADE_USBHUB_DMA_SRAM_SIZE);
+					    FU_PARADE_USBHUB_DMA_SRAM_SIZE,
+					    error);
+	if (chunks == NULL)
+		return FALSE;
 	fu_progress_set_id(progress, G_STRLOC);
 	fu_progress_set_steps(progress, chunks->len);
 	for (guint i = 0; i < chunks->len; i++) {
@@ -968,7 +985,10 @@ fu_parade_usbhub_device_spi_rom_checksum(FuParadeUsbhubDevice *self,
 				    size,
 				    self->spi_address,
 				    0x0,
-				    FU_PARADE_USBHUB_SPI_ROM_CHECKSUM_BUFFER_SIZE);
+				    FU_PARADE_USBHUB_SPI_ROM_CHECKSUM_BUFFER_SIZE,
+				    error);
+	if (chunks == NULL)
+		return FALSE;
 	for (guint i = 0; i < chunks->len; i++) {
 		FuChunk *chk = g_ptr_array_index(chunks, i);
 		if (!fu_parade_usbhub_device_calculate_checksum(self,
@@ -1196,6 +1216,21 @@ fu_parade_usbhub_device_write_firmware(FuDevice *device,
 			    checksum);
 		return FALSE;
 	}
+	if (fu_device_has_private_flag(FU_DEVICE(self),
+				       FU_PARADE_USBHUB_DEVICE_FLAG_USE_GPIO_ENABLE)) {
+		if (!fu_parade_usbhub_device_mmio_write_u8(
+			self,
+			FU_PARADE_USBHUB_DEVICE_ADDR_SPI_MASTER_ACQUIRE,
+			0x40,
+			error))
+			return FALSE;
+		if (!fu_parade_usbhub_device_mmio_write_u8(
+			self,
+			FU_PARADE_USBHUB_DEVICE_ADDR_GPIO_CONTROL_ENABLE,
+			0x01,
+			error))
+			return FALSE;
+	}
 	fu_progress_step_done(progress);
 
 	/* success! */
@@ -1255,15 +1290,20 @@ fu_parade_usbhub_device_init(FuParadeUsbhubDevice *self)
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_SIGNED_PAYLOAD);
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_SELF_RECOVERY);
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_DUAL_IMAGE);
+	fu_device_register_private_flag(FU_DEVICE(self),
+					FU_PARADE_USBHUB_DEVICE_FLAG_USE_GPIO_ENABLE);
 	fu_device_add_request_flag(FU_DEVICE(self), FWUPD_REQUEST_FLAG_ALLOW_GENERIC_MESSAGE);
 }
 
 static void
-fu_parade_usbhub_device_constructed(GObject *object)
+fu_parade_usbhub_device_constructed(GObject *obj)
 {
-	FuParadeUsbhubDevice *self = FU_PARADE_USBHUB_DEVICE(object);
+	FuParadeUsbhubDevice *self = FU_PARADE_USBHUB_DEVICE(obj);
 	self->chip = FU_PARADE_USBHUB_CHIP_PS5512;
 	self->cfi_device = fu_cfi_device_new(FU_DEVICE(self), NULL);
+
+	/* chain up to parent */
+	G_OBJECT_CLASS(fu_parade_usbhub_device_parent_class)->constructed(obj);
 }
 
 static void

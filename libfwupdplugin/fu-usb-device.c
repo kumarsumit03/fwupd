@@ -11,6 +11,7 @@
 #include "config.h"
 
 #include "fu-bytes.h"
+#include "fu-common.h"
 #include "fu-context-private.h"
 #include "fu-device-event-private.h"
 #include "fu-device-locker.h"
@@ -150,6 +151,13 @@ fu_usb_device_libusb_status_to_gerror(gint status, GError **error)
 
 /**
  * fu_usb_device_get_dev: (skip):
+ * @self: a #FuUsbDevice
+ *
+ * Gets the low-level platform device.
+ *
+ * Returns: (type gpointer): a libusb_device
+ *
+ * Since: 2.0.0
  **/
 libusb_device *
 fu_usb_device_get_dev(FuUsbDevice *self)
@@ -1895,7 +1903,10 @@ fu_usb_device_parse_descriptor(FuUsbDevice *self, GBytes *blob, GError **error)
 							   FU_FIRMWARE(img),
 							   error))
 					return FALSE;
-				offset += fu_firmware_get_size(FU_FIRMWARE(img));
+				if (!fu_size_checked_inc(&offset,
+							 fu_firmware_get_size(FU_FIRMWARE(img)),
+							 error))
+					return FALSE;
 			}
 
 			g_set_object(&iface_last, iface);
@@ -1937,7 +1948,8 @@ fu_usb_device_parse_descriptor(FuUsbDevice *self, GBytes *blob, GError **error)
 				descriptor_kind,
 				str != NULL ? str : "unknown");
 		}
-		offset += fu_usb_base_hdr_get_length(st_base);
+		if (!fu_size_checked_inc(&offset, fu_usb_base_hdr_get_length(st_base), error))
+			return FALSE;
 	}
 
 	/* success */
@@ -3063,7 +3075,7 @@ fu_usb_device_add_json(FuDevice *device, FwupdJsonObject *json_obj, FwupdCodecFl
 /**
  * fu_usb_device_new: (skip):
  * @ctx: (nullable): a #FuContext
- * @usb_device: a #libusb_device
+ * @usb_device: (type gpointer): a #libusb_device
  *
  * Creates a new #FuUsbDevice.
  *

@@ -814,7 +814,10 @@ fu_cfi_device_read_firmware(FuCfiDevice *self, gsize bufsz, FuProgress *progress
 					   buf->len,
 					   0x0,
 					   0x0,
-					   fu_cfi_device_get_block_size(self));
+					   fu_cfi_device_get_block_size(self),
+					   error);
+	if (pages == NULL)
+		return NULL;
 	fu_progress_set_id(progress, G_STRLOC);
 	fu_progress_set_steps(progress, pages->len);
 	for (guint i = 0; i < pages->len; i++) {
@@ -964,6 +967,9 @@ fu_cfi_device_constructed(GObject *obj)
 {
 	FuCfiDevice *self = FU_CFI_DEVICE(obj);
 	fu_device_add_instance_id(FU_DEVICE(self), "SPI");
+
+	/* chain up to parent */
+	G_OBJECT_CLASS(fu_cfi_device_parent_class)->constructed(obj);
 }
 
 static void

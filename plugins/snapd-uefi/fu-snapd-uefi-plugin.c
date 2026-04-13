@@ -15,9 +15,15 @@
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(CURL, curl_easy_cleanup);
 
+typedef enum {
+	FU_SNAPD_API_UNAVAILABLE, /* not available at all */
+	FU_SNAPD_API_FAILED,	  /* available but non-functional */
+	FU_SNAPD_API_OK,	  /* all working - i.e. startup succeeded */
+} FuSnapdIntegrationStatusEnum;
+
 struct _FuSnapPlugin {
 	FuPlugin parent_instance;
-	gboolean snapd_integration_supported;
+	FuSnapdIntegrationStatusEnum integration_status;
 	CURL *curl_template;
 	struct curl_slist *req_hdrs;
 };
@@ -28,6 +34,7 @@ static const gchar *
 fu_snapd_uefi_plugin_device_to_key_database(FuSnapPlugin *self, FuDevice *device)
 {
 	const gchar *plugin = fu_device_get_plugin(device);
+	const char *db_override = NULL;
 	if (g_strcmp0(plugin, "uefi_dbx") == 0)
 		return "DBX";
 	if (g_strcmp0(plugin, "uefi_db") == 0)
@@ -36,6 +43,13 @@ fu_snapd_uefi_plugin_device_to_key_database(FuSnapPlugin *self, FuDevice *device
 		return "KEK";
 	if (g_strcmp0(plugin, "uefi_pk") == 0)
 		return "PK";
+
+	db_override = fu_plugin_get_config_value(FU_PLUGIN(self), "KeyDBOverride");
+	if (db_override != NULL) {
+		g_debug("test key DB override: %s", db_override);
+		return db_override;
+	}
+
 	return NULL;
 }
 
@@ -48,8 +62,10 @@ fu_snapd_uefi_plugin_device_registered(FuPlugin *plugin, FuDevice *device)
 	if (fu_snapd_uefi_plugin_device_to_key_database(self, device) == NULL)
 		return;
 
-	/* if snapd integration is supported, but we are unable to use snapd, inhibit updates */
-	if (!self->snapd_integration_supported) {
+	/* the plugin is only added if snapd FDE is used or when fwupd is running in
+       a snap */
+	if (self->integration_status == FU_SNAPD_API_FAILED) {
+		/* APIs are present, but failing */
 		fu_device_inhibit(FU_DEVICE(device),
 				  "no-snapd",
 				  "snapd integration for UEFI update is not available");
@@ -64,6 +80,44 @@ fu_snapd_uefi_plugin_rsp_cb(char *ptr, size_t size, size_t nmemb, void *userdata
 	gsize sz = size * nmemb;
 	g_byte_array_append(bufarr, (const guint8 *)ptr, sz);
 	return sz;
+}
+
+/*
+ * Extract the error message from the snapd JSON error response.
+ * The response format is:
+ *   {"type": "error", "status-code": <N>, "result": {"message": "<error description>"}}
+ *
+ * Returns: (transfer full) (nullable): the error message string, or NULL
+ */
+static gchar *
+fu_snapd_uefi_plugin_extract_error_message(const guint8 *data, gsize len)
+{
+	g_autoptr(FwupdJsonParser) json_parser = fwupd_json_parser_new();
+	g_autoptr(FwupdJsonNode) json_node = NULL;
+	g_autoptr(FwupdJsonObject) json_rsp = NULL;
+	g_autoptr(FwupdJsonObject) json_result = NULL;
+	g_autoptr(GBytes) blob = g_bytes_new(data, len);
+	GRefString *msg;
+
+	/* set appropriate limits for a small error response */
+	fwupd_json_parser_set_max_depth(json_parser, 5);
+	fwupd_json_parser_set_max_items(json_parser, 10);
+	fwupd_json_parser_set_max_quoted(json_parser, 1000);
+
+	json_node =
+	    fwupd_json_parser_load_from_bytes(json_parser, blob, FWUPD_JSON_LOAD_FLAG_NONE, NULL);
+	if (json_node == NULL)
+		return NULL;
+	json_rsp = fwupd_json_node_get_object(json_node, NULL);
+	if (json_rsp == NULL)
+		return NULL;
+	json_result = fwupd_json_object_get_object(json_rsp, "result", NULL);
+	if (json_result == NULL)
+		return NULL;
+	msg = fwupd_json_object_get_string(json_result, "message", NULL);
+	if (msg == NULL)
+		return NULL;
+	return g_strdup(msg);
 }
 
 static gboolean
@@ -101,7 +155,7 @@ fu_snapd_uefi_plugin_simple_req(FuSnapPlugin *self,
 
 	res = curl_easy_perform(curl);
 	if (res != CURLE_OK) {
-		/* TODO inspect the error */
+		/* TODO inspect curl specific error */
 		g_set_error(error,
 			    FWUPD_ERROR,
 			    FWUPD_ERROR_INTERNAL,
@@ -120,16 +174,29 @@ fu_snapd_uefi_plugin_simple_req(FuSnapPlugin *self,
 	}
 
 	if (status_code != 200) {
+		g_autofree gchar *snapd_msg = NULL;
 		g_autofree gchar *rsp = NULL;
+
 		if (rsp_buf->len > 0) {
+			snapd_msg =
+			    fu_snapd_uefi_plugin_extract_error_message(rsp_buf->data, rsp_buf->len);
 			/* make sure the response is printable */
 			rsp = fu_strsafe((const char *)rsp_buf->data, rsp_buf->len);
 		}
 
-		/* TODO check whether the response is even printable? */
 		g_info("snapd request failed with status %ld, response: %s",
 		       (glong)status_code,
 		       rsp != NULL ? rsp : "<none>");
+
+		if (snapd_msg != NULL) {
+			g_set_error(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INTERNAL,
+				    "snapd request failed with status %ld: %s",
+				    (glong)status_code,
+				    snapd_msg);
+			return FALSE;
+		}
 		g_set_error(error,
 			    FWUPD_ERROR,
 			    FWUPD_ERROR_INTERNAL,
@@ -152,7 +219,8 @@ fu_snapd_uefi_plugin_startup(FuPlugin *plugin, FuProgress *progress, GError **er
 {
 	FuSnapPlugin *self = FU_SNAPD_UEFI_PLUGIN(plugin);
 	FuContext *ctx = fu_plugin_get_context(plugin);
-	const gchar *snapd_snap_socket_override = g_getenv("FWUPD_SNAPD_SNAP_SOCKET");
+	const gchar *snapd_snap_socket_override =
+	    fu_plugin_get_config_value(plugin, "SnapdSocketPathOverride");
 	g_autoptr(FwupdJsonObject) json_obj = fwupd_json_object_new();
 	g_autoptr(GError) error_local = NULL;
 	g_autoptr(GString) msg = NULL;
@@ -198,12 +266,17 @@ fu_snapd_uefi_plugin_startup(FuPlugin *plugin, FuProgress *progress, GError **er
 					     &error_local)) {
 		/* unless we got specific error indicating lack of relevant APIs, snapd integration
 		 * is considered to be supported, even if snapd itself cannot be reached */
-		self->snapd_integration_supported =
-		    !g_error_matches(error_local, FWUPD_ERROR, FWUPD_ERROR_NOT_SUPPORTED);
+		if (g_error_matches(error_local, FWUPD_ERROR, FWUPD_ERROR_NOT_SUPPORTED))
+			/* relevant API is not supported */
+			self->integration_status = FU_SNAPD_API_UNAVAILABLE;
+		else
+			/* API present, but requests fail */
+			self->integration_status = FU_SNAPD_API_FAILED;
+
 		g_info("snapd integration non-functional: %s", error_local->message);
 	} else {
 		g_info("snapd integration enabled");
-		self->snapd_integration_supported = TRUE;
+		self->integration_status = FU_SNAPD_API_OK;
 	}
 	return TRUE;
 }
@@ -237,6 +310,9 @@ fu_snapd_uefi_plugin_composite_cleanup(FuPlugin *plugin, GPtrArray *devices, GEr
 {
 	FuSnapPlugin *self = FU_SNAPD_UEFI_PLUGIN(plugin);
 
+	if (self->integration_status == FU_SNAPD_API_UNAVAILABLE)
+		return TRUE;
+
 	/* only for UEFI updates */
 	for (guint i = 0; i < devices->len; i++) {
 		FuDevice *device = g_ptr_array_index(devices, i);
@@ -262,13 +338,16 @@ fu_snapd_uefi_plugin_composite_peek_firmware(FuPlugin *plugin,
 	g_autoptr(GString) msg = NULL;
 	g_autoptr(GPtrArray) images = NULL;
 
+	if (self->integration_status == FU_SNAPD_API_UNAVAILABLE)
+		return TRUE;
+
 	/* not interesting */
 	key_database = fu_snapd_uefi_plugin_device_to_key_database(self, device);
 	if (key_database == NULL)
 		return TRUE;
 
 	images = fu_firmware_get_images(firmware);
-	if (images->len == 1) {
+	if (images->len == 0) {
 		/* get default image */
 		g_autoptr(GBytes) fw = fu_firmware_get_bytes(firmware, error);
 		if (fw == NULL)
@@ -306,6 +385,28 @@ fu_snapd_uefi_plugin_composite_peek_firmware(FuPlugin *plugin,
 	return TRUE;
 }
 
+static gboolean
+fu_snapd_uefi_plugin_modify_config(FuPlugin *plugin,
+				   const gchar *key,
+				   const gchar *value,
+				   GError **error)
+{
+	const gchar *keys[] = {
+	    "SnapdSocketPathOverride", /* override for snapd socket path, used in tests */
+	    "KeyDBOverride",	       /* override for the DB path, used in tests */
+	    NULL,
+	};
+	if (!g_strv_contains(keys, key)) {
+		g_set_error(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_NOT_SUPPORTED,
+			    "config key %s not supported",
+			    key);
+		return FALSE;
+	}
+	return fu_plugin_set_config_value(plugin, key, value, error);
+}
+
 static void
 fu_snapd_uefi_plugin_init(FuSnapPlugin *self)
 {
@@ -334,6 +435,7 @@ fu_snapd_uefi_plugin_class_init(FuSnapPluginClass *klass)
 	plugin_class->device_registered = fu_snapd_uefi_plugin_device_registered;
 	plugin_class->composite_cleanup = fu_snapd_uefi_plugin_composite_cleanup;
 	plugin_class->composite_peek_firmware = fu_snapd_uefi_plugin_composite_peek_firmware;
+	plugin_class->modify_config = fu_snapd_uefi_plugin_modify_config;
 
 	object_class->finalize = fu_snapd_uefi_plugin_finalize;
 }

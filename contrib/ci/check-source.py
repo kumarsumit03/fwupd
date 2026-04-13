@@ -815,16 +815,29 @@ class Checker:
                     "did not have parent ->finalize()", linecnt=token.linecnt
                 )
 
+    def _test_gobject_constructed(self, node: Node) -> None:
+
+        if node.tokens_pre.endswith_fuzzy(
+            ["void", "~*_constructed", "(", "GObject", "*", "~*", ")"]
+        ):
+            token = node.tokens_pre[-1]
+            idx = node.tokens.find_fuzzy(
+                ["G_OBJECT_CLASS", "(", "~*_parent_class", ")", "-", ">", "constructed"]
+            )
+            if idx == -1:
+                self.add_failure(
+                    "did not have parent ->constructed()", linecnt=token.linecnt
+                )
+
     def _test_blocked_funcs(self, node: Node) -> None:
 
         for token, msg in {
-            "~cbor_get_uint?": "Use cbor_get_int() instead",
-            "~cbor_get_uint??": "Use cbor_get_int() instead",
             "g_error": "Use GError instead",
             "g_byte_array_free_to_bytes": "Use g_bytes_new() instead",
             "g_ascii_strtoull": "Use fu_strtoull() instead",
             "g_ascii_strtoll": "Use fu_strtoll() instead",
             "g_strerror": "Use fwupd_strerror() instead",
+            "gnutls_malloc": "Use gnutls_calloc() instead",
             "g_random_int_range": "Use a predicatable token instead",
             "g_assert": "Use g_set_error() or g_return_val_if_fail() instead",
             "HIDIOCSFEATURE": "Use fu_hidraw_device_set_feature() instead",
@@ -1440,6 +1453,7 @@ class Checker:
             self._current_nocheck = "nocheck:finalize"
             if self._should_process_node(node):
                 self._test_gobject_finalize(node)
+                self._test_gobject_constructed(node)
 
             # test for blocked functions
             self._current_nocheck = "nocheck:blocked"

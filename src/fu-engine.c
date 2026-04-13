@@ -89,8 +89,8 @@
 
 #define FU_ENGINE_UPDATE_MOTD_DELAY 5 /* s */
 
-#define FU_ENGINE_MAX_METADATA_SIZE  0x2000000 /* 32MB */
-#define FU_ENGINE_MAX_SIGNATURE_SIZE 0x100000  /* 1MB */
+#define FU_ENGINE_MAX_METADATA_SIZE  (32 * FU_MB)
+#define FU_ENGINE_MAX_SIGNATURE_SIZE (1 * FU_MB)
 
 static void
 fu_engine_constructed(GObject *obj);
@@ -1493,12 +1493,13 @@ static XbNode *
 fu_engine_verify_from_local_metadata(FuEngine *self, FuDevice *device, GError **error)
 {
 	const gchar *localstatedir;
+	g_auto(XbQueryContext) context = XB_QUERY_CONTEXT_INIT();
 	g_autofree gchar *fn = NULL;
-	g_autofree gchar *xpath = NULL;
 	g_autoptr(GFile) file = NULL;
 	g_autoptr(XbBuilder) builder = xb_builder_new();
 	g_autoptr(XbBuilderSource) source = xb_builder_source_new();
 	g_autoptr(XbNode) release = NULL;
+	g_autoptr(XbQuery) query = NULL;
 	g_autoptr(XbSilo) silo = NULL;
 
 	localstatedir = fu_context_get_path(self->ctx, FU_PATH_KIND_LOCALSTATEDIR_PKG, error);
@@ -1521,9 +1522,19 @@ fu_engine_verify_from_local_metadata(FuEngine *self, FuDevice *device, GError **
 		fwupd_error_convert(error);
 		return NULL;
 	}
-	xpath = g_strdup_printf("component/releases/release[@version='%s']",
-				fu_device_get_version(device));
-	release = xb_silo_query_first(silo, xpath, error);
+	query = xb_query_new_full(silo,
+				  "component/releases/release[@version=?]",
+				  XB_QUERY_FLAG_NONE,
+				  error);
+	if (query == NULL) {
+		g_prefix_error_literal(error, "failed to prepare query: ");
+		return NULL;
+	}
+	xb_value_bindings_bind_str(xb_query_context_get_bindings(&context),
+				   0,
+				   fu_device_get_version(device),
+				   NULL);
+	release = xb_silo_query_first_with_context(silo, query, &context, error);
 	if (release == NULL)
 		return NULL;
 
@@ -2788,6 +2799,21 @@ fu_engine_install_release(FuEngine *self,
 
 	/* not in bootloader mode */
 	device = g_object_ref(fu_release_get_device(release));
+
+	/* do not allow installs when the device is hidden by an active problem */
+	if (!fu_device_has_flag(device, FWUPD_DEVICE_FLAG_EMULATED) &&
+	    !fu_device_has_flag(device, FWUPD_DEVICE_FLAG_UPDATABLE)) {
+		g_autofree gchar *id_display = fu_device_get_id_display(device);
+		g_autoptr(GString) str = g_string_new(NULL);
+		g_string_append_printf(str,
+				       "Device %s does not currently allow updates",
+				       id_display);
+		if (fu_device_get_update_error(device) != NULL)
+			g_string_append_printf(str, ": %s", fu_device_get_update_error(device));
+		g_set_error_literal(error, FWUPD_ERROR, FWUPD_ERROR_NOT_SUPPORTED, str->str);
+		return FALSE;
+	}
+
 	if (!fu_device_has_flag(device, FWUPD_DEVICE_FLAG_IS_BOOTLOADER)) {
 		/* both optional; the plugin can specify a fallback */
 		tmp = fwupd_release_get_detach_caption(FWUPD_RELEASE(release));
@@ -4913,8 +4939,12 @@ fu_engine_update_metadata(FuEngine *self,
 	g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
 
 	/* ensures the fd's are closed on error */
-	stream_fd = fu_unix_seekable_input_stream_new(fd, TRUE);
-	stream_sig = fu_unix_seekable_input_stream_new(fd_sig, TRUE);
+	stream_fd = fu_unix_seekable_input_stream_new(fd, TRUE, error);
+	if (stream_fd == NULL)
+		return FALSE;
+	stream_sig = fu_unix_seekable_input_stream_new(fd_sig, TRUE, error);
+	if (stream_sig == NULL)
+		return FALSE;
 
 	/* read the entire file into memory */
 	bytes_raw =
@@ -4980,6 +5010,7 @@ fu_engine_get_result_from_component(FuEngine *self,
 				    XbNode *component,
 				    GError **error)
 {
+	const gchar *tmp;
 	g_autoptr(FuDevice) dev = NULL;
 	g_autoptr(FuRelease) release = fu_release_new();
 	g_autoptr(GError) error_local = NULL;
@@ -5035,6 +5066,11 @@ fu_engine_get_result_from_component(FuEngine *self,
 			fu_release_add_tag(release, xb_node_get_text(tag));
 		}
 	}
+
+	/* add homepage */
+	tmp = xb_node_query_text(component, "url[@type='homepage']", NULL);
+	if (tmp != NULL)
+		fu_device_set_details_url(dev, tmp);
 
 	/* add EOL flag */
 	if (xb_node_get_attr(component, "date_eol") != NULL)
@@ -5781,10 +5817,10 @@ fu_engine_get_releases_for_device(FuEngine *self,
 
 	/* only show devices that can be updated */
 	if (!fu_engine_request_has_feature_flag(request, FWUPD_FEATURE_FLAG_SHOW_PROBLEMS) &&
-	    !fu_device_is_updatable(device)) {
+	    !fu_device_has_flag(device, FWUPD_DEVICE_FLAG_UPDATABLE)) {
 		g_set_error_literal(error,
 				    FWUPD_ERROR,
-				    FWUPD_ERROR_NOT_SUPPORTED,
+				    FWUPD_ERROR_NOTHING_TO_DO,
 				    "is not updatable");
 		return NULL;
 	}
@@ -6837,6 +6873,13 @@ fu_engine_add_device(FuEngine *self, FuDevice *device)
 				}
 			}
 		}
+	}
+
+	/* add device homepage */
+	if (component != NULL) {
+		const gchar *tmp = xb_node_query_text(component, "url[@type='homepage']", NULL);
+		if (tmp != NULL)
+			fu_device_set_details_url(device, tmp);
 	}
 
 	/* check if the device needs emulation-tag */
@@ -8105,7 +8148,7 @@ fu_engine_backend_device_added(FuEngine *self, FuDevice *device, FuProgress *pro
 	fu_progress_add_step(progress, FWUPD_STATUS_LOADING, 50, "query-possible-plugins");
 
 	/* super useful for plugin development */
-	if (g_getenv("FWUPD_VERBOSE") != NULL) {
+	if (g_log_get_debug_enabled()) {
 		g_autofree gchar *str = fu_device_to_string(FU_DEVICE(device));
 		g_debug("%s added %s", fu_device_get_backend_id(device), str);
 	}
@@ -8132,7 +8175,7 @@ fu_engine_backend_device_added(FuEngine *self, FuDevice *device, FuProgress *pro
 	fu_engine_ensure_device_emulation_tag(self, device);
 
 	/* super useful for plugin development */
-	if (g_getenv("FWUPD_VERBOSE") != NULL) {
+	if (g_log_get_debug_enabled()) {
 		g_autofree gchar *str = fu_device_to_string(FU_DEVICE(device));
 		g_debug("%s added %s", fu_device_get_backend_id(device), str);
 	}
@@ -8995,7 +9038,7 @@ fu_engine_load(FuEngine *self, FuEngineLoadFlags flags, FuProgress *progress, GE
 	}
 
 	/* dump plugin information to the console */
-	if (g_getenv("FWUPD_VERBOSE") != NULL) {
+	if (g_log_get_debug_enabled()) {
 		g_autoptr(GString) str = g_string_new(NULL);
 		for (guint i = 0; i < backends->len; i++) {
 			FuBackend *backend = g_ptr_array_index(backends, i);
@@ -9423,6 +9466,9 @@ fu_engine_constructed(GObject *obj)
 					       "io.snapcraft.fwupd",
 					       g_getenv("SNAP_REVISION"));
 	}
+
+	/* chain up to parent */
+	G_OBJECT_CLASS(fu_engine_parent_class)->constructed(obj);
 }
 
 static void
